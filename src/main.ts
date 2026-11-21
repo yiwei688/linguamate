@@ -1,5 +1,6 @@
 import './style.css'
-import { currentUser, login, logout, register } from './auth'
+import { currentUser, login, register } from './auth'
+import { lobbyView, mountLobby } from './lobby'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -87,19 +88,6 @@ function registerView(): string {
   </div>`
 }
 
-function appView(user: { account: string }): string {
-  return `
-  <div class="page">
-    <div class="brand"><span class="logo">L</span>LinguaMate</div>
-    <div class="card center">
-      <h1>登录成功</h1>
-      <p class="sub">当前账号：<b>${user.account}</b></p>
-      <p class="sub">这里以后是「匹配大厅」，还没开始做。</p>
-      <button class="btn ghost" type="button" id="a-logout">退出登录</button>
-    </div>
-  </div>`
-}
-
 /* ---------------- 挂载 ---------------- */
 
 function mountLogin(): void {
@@ -152,13 +140,6 @@ function mountRegister(): void {
   })
 }
 
-function mountApp(): void {
-  $<HTMLButtonElement>('#a-logout').addEventListener('click', () => {
-    logout()
-    location.hash = '#/login'
-  })
-}
-
 /* ---------------- 路由 ---------------- */
 
 function render(html: string, mount: () => void): void {
@@ -176,12 +157,11 @@ function route(): void {
   }
 
   if (path === 'app') {
-    const user = currentUser()
-    if (!user) {
+    if (!currentUser()) {
       location.hash = '#/login'
       return
     }
-    render(appView(user), mountApp)
+    render(lobbyView(), mountLobby)
     return
   }
 
