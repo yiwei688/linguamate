@@ -129,6 +129,8 @@ export function mountLobby(): void {
   let timer: number | undefined
   let invited = ''
   let currentTopic = 0
+  let offset = 0
+  let total = 0
 
   const stopTimer = (): void => {
     if (timer !== undefined) {
@@ -187,6 +189,7 @@ export function mountLobby(): void {
     }
     const current = mode
     results.innerHTML = `
+      ${total > list.length ? '<div class="results-bar"><button class="btn ghost sm" type="button" id="reshuffle">换一批</button></div>' : ''}
       <div class="grid-mates">
         ${list
           .map((p) => {
@@ -227,6 +230,23 @@ export function mountLobby(): void {
         drawResults(list)
       }
     })
+
+    const reshuffle = document.querySelector<HTMLButtonElement>('#reshuffle')
+    if (reshuffle) reshuffle.onclick = () => void loadPartners(offset + 4)
+  }
+
+  const loadPartners = async (nextOffset: number): Promise<void> => {
+    const target = mode
+    if (!target) return
+    const res = await api.partners(target, MY_TAGS, MY_LEVEL, nextOffset)
+    if (!mode || mode !== target) return // 请求回来之前用户已经取消了
+    if (!res.ok) {
+      results.innerHTML = `<div class="empty-box">${res.error}</div>`
+      return
+    }
+    total = res.data.total
+    offset = total ? nextOffset % total : 0
+    drawResults(res.data.partners)
   }
 
   const startSearch = async (next: Mode): Promise<void> => {
@@ -249,14 +269,10 @@ export function mountLobby(): void {
       if (sec === 15) drawSearch()
     }, 1000)
 
-    // 语伴从数据库来（30 个人里筛）
-    const res = await api.partners(next, MY_TAGS, MY_LEVEL)
-    if (!mode) return // 连不上之前用户已经取消了
-    if (!res.ok) {
-      results.innerHTML = `<div class="empty-box">${res.error}</div>`
-      return
-    }
-    drawResults(res.data.partners)
+    // 语伴从数据库来（30 个人的池子里筛，每次给 4 个）
+    offset = 0
+    total = 0
+    await loadPartners(0)
   }
 
   function cancelSearch(): void {
@@ -264,6 +280,8 @@ export function mountLobby(): void {
     mode = null
     sec = 0
     invited = ''
+    offset = 0
+    total = 0
     searchArea.innerHTML = ''
     results.innerHTML = ''
     stage.classList.remove('is-searching')

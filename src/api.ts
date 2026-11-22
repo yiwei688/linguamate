@@ -38,9 +38,9 @@ export const api = {
   login: (input: { account: string; password: string }) =>
     request<{ ok: true; user: SessionUser }>('/login', input),
 
-  partners: (mode: string, tags: string[], level: string) =>
-    request<{ ok: true; partners: Partner[] }>(
-      `/partners?mode=${encodeURIComponent(mode)}&tags=${encodeURIComponent(tags.join(','))}&level=${encodeURIComponent(level)}`,
+  partners: (mode: string, tags: string[], level: string, offset = 0) =>
+    request<{ ok: true; partners: Partner[]; total: number }>(
+      `/partners?mode=${encodeURIComponent(mode)}&tags=${encodeURIComponent(tags.join(','))}&level=${encodeURIComponent(level)}&offset=${offset}`,
     ),
 
   practices: (account: string) =>

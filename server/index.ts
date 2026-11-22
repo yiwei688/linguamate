@@ -50,8 +50,10 @@ function matchPartners(mode: string, myTags: string[], myLevel: string) {
       : (LEVEL_RANK[p.level] ?? 0) > (LEVEL_RANK[myLevel] ?? 0)
   })
 
-  return list.slice(0, 4)
+  return list
 }
+
+const PAGE_SIZE = 4
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
@@ -103,7 +105,13 @@ const server = createServer(async (req, res) => {
       const mode = url.searchParams.get('mode') ?? 'chill'
       const myTags = (url.searchParams.get('tags') ?? '').split(',').filter(Boolean)
       const myLevel = url.searchParams.get('level') ?? 'B1'
-      return send(res, 200, { ok: true, partners: matchPartners(mode, myTags, myLevel) })
+      const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0)
+
+      const all = matchPartners(mode, myTags, myLevel)
+      const start = all.length ? offset % all.length : 0
+      // 从 offset 开始取 4 个，不够就从头补，这样"换一批"总能换到人
+      const page = [...all.slice(start), ...all.slice(0, start)].slice(0, PAGE_SIZE)
+      return send(res, 200, { ok: true, partners: page, total: all.length })
     }
 
     if (req.method === 'GET' && path === '/api/practices') {

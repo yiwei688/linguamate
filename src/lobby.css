@@ -146,6 +146,17 @@
 }
 
 /* 名片区：左框架变窄了，名片改成单列，避免挤成一团 */
+.results-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.results-bar .btn {
+  width: auto;
+  margin: 0;
+}
+
 .grid-mates {
   display: grid;
   grid-template-columns: 1fr;
