@@ -2,6 +2,7 @@ node_modules
 dist
 *.local
 data/
+docs/
 *.db
 *.db-journal
 .npm-cache
