@@ -1,58 +1,44 @@
-// 假的"后端"：把用户存在浏览器本地，给前端先把流程跑通。
-// 阶段 4 会换成真正的 SQLite（node:sqlite）和加盐密码，这里的明文密码只为演示。
-
-export type User = {
-  account: string
-  password: string
-  phone: string
-  email: string
-  createdAt: number
-}
+// 现在"用户"存在数据库里（server/db.ts），这里只负责：
+// 1) 调接口   2) 记住"当前是谁登录着"（这一条放浏览器本地就够）
+import { api, type SessionUser } from './api'
 
 export type Result = { ok: true } | { ok: false; msg: string }
 
-const USERS_KEY = 'linguamate.users'
 const SESSION_KEY = 'linguamate.session'
 
-function readUsers(): User[] {
+export function currentUser(): SessionUser | null {
+  const raw = localStorage.getItem(SESSION_KEY)
+  if (!raw) return null
   try {
-    const raw = localStorage.getItem(USERS_KEY)
-    return raw ? (JSON.parse(raw) as User[]) : []
+    return JSON.parse(raw) as SessionUser
   } catch {
-    return []
+    return null
   }
 }
 
-function writeUsers(users: User[]): void {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
-}
-
-export function register(input: Omit<User, 'createdAt'>): Result {
-  const users = readUsers()
-  if (users.some((u) => u.account === input.account)) {
-    return { ok: false, msg: '该账号已被注册' }
-  }
-  users.push({ ...input, createdAt: Date.now() })
-  writeUsers(users)
-  localStorage.setItem(SESSION_KEY, input.account)
-  return { ok: true }
-}
-
-export function login(account: string, password: string): Result {
-  const user = readUsers().find((u) => u.account === account)
-  if (!user || user.password !== password) {
-    return { ok: false, msg: '账号或密码错误' }
-  }
-  localStorage.setItem(SESSION_KEY, user.account)
-  return { ok: true }
-}
-
-export function currentUser(): User | null {
-  const account = localStorage.getItem(SESSION_KEY)
-  if (!account) return null
-  return readUsers().find((u) => u.account === account) ?? null
+function setUser(user: SessionUser): void {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(user))
 }
 
 export function logout(): void {
   localStorage.removeItem(SESSION_KEY)
+}
+
+export async function register(input: {
+  account: string
+  password: string
+  phone: string
+  email: string
+}): Promise<Result> {
+  const res = await api.register(input)
+  if (!res.ok) return { ok: false, msg: res.error }
+  setUser(res.data.user)
+  return { ok: true }
+}
+
+export async function login(account: string, password: string): Promise<Result> {
+  const res = await api.login({ account, password })
+  if (!res.ok) return { ok: false, msg: res.error }
+  setUser(res.data.user)
+  return { ok: true }
 }

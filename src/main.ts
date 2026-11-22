@@ -94,12 +94,15 @@ function mountLogin(): void {
   const form = $<HTMLFormElement>('#login-form')
   const err = $<HTMLParagraphElement>('#l-err')
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault()
+    const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!
     const account = $<HTMLInputElement>('#l-account').value.trim()
     const password = $<HTMLInputElement>('#l-pass').value
     if (!account || !password) return showErr(err, '请输入账号和密码')
-    const res = login(account, password)
+    btn.disabled = true
+    const res = await login(account, password)
+    btn.disabled = false
     if (!res.ok) return showErr(err, res.msg)
     location.hash = '#/app'
   })
@@ -118,8 +121,9 @@ function mountRegister(): void {
     $<HTMLButtonElement>('#r-refresh').textContent = captcha
   })
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault()
+    const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!
     const account = $<HTMLInputElement>('#r-account').value.trim()
     const password = $<HTMLInputElement>('#r-pass').value
     const password2 = $<HTMLInputElement>('#r-pass2').value
@@ -134,7 +138,9 @@ function mountRegister(): void {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErr(err, '邮箱格式不对')
     if (code.toUpperCase() !== captcha) return showErr(err, '验证码不对')
 
-    const res = register({ account, password, phone, email })
+    btn.disabled = true
+    const res = await register({ account, password, phone, email })
+    btn.disabled = false
     if (!res.ok) return showErr(err, res.msg)
     location.hash = '#/app'
   })

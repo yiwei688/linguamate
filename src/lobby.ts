@@ -1,14 +1,8 @@
 import './lobby.css'
+import { api, type Partner } from './api'
 import { currentUser, logout } from './auth'
 
 type Mode = 'chill' | 'stretch'
-
-type Partner = {
-  name: string
-  level: string
-  tags: string[]
-  color: string
-}
 
 type Topic = {
   title: string
@@ -16,11 +10,10 @@ type Topic = {
   tips: { en: string; cn: string }[]
 }
 
-// 定级还没做，我的标签和等级先用默认值占位（阶段 5 换成真实画像）
-const MY_TAGS = ['电影迷', '慢热型']
-const MY_LEVEL = 'B1'
-
-const LEVEL_RANK: Record<string, number> = { A2: 1, B1: 2, B2: 3 }
+// 我的画像来自数据库（登录时一起返回）；定级做好之前，新用户是默认标签
+const me = currentUser()
+const MY_LEVEL = me?.level ?? 'B1'
+const MY_TAGS = me?.tags ?? []
 
 const TOPICS: Topic[] = [
   {
@@ -55,31 +48,7 @@ const TOPICS: Topic[] = [
   },
 ]
 
-const PARTNERS: Partner[] = [
-  { name: 'Mia', level: 'B1', tags: ['电影迷', '倾听者'], color: '#7c6cf6' },
-  { name: 'Leo', level: 'B1', tags: ['科技控', '破冰者'], color: '#12b3a6' },
-  { name: 'Sara', level: 'B2', tags: ['社会派', '深聊派'], color: '#ff6b4a' },
-  { name: 'Ken', level: 'A2', tags: ['旅行党', '慢热型'], color: '#f0a91b' },
-  { name: 'Ivy', level: 'B1', tags: ['电影迷', '深聊派'], color: '#0ea5e9' },
-  { name: 'Noah', level: 'B2', tags: ['科技控', '短平快'], color: '#8b5cf6' },
-  { name: 'Zoe', level: 'A2', tags: ['旅行党', '破冰者'], color: '#ef4444' },
-  { name: 'Tom', level: 'B2', tags: ['社会派', '倾听者'], color: '#14b8a6' },
-]
-
 const $ = <T extends HTMLElement>(sel: string): T => document.querySelector<T>(sel)!
-
-function sharedTags(p: Partner): string[] {
-  return p.tags.filter((t) => MY_TAGS.includes(t))
-}
-
-/** 轻松 = 标签有交集；进阶 = 标签没交集，或者等级比我高（两种都算“进阶”） */
-function partnersFor(mode: Mode): Partner[] {
-  return PARTNERS.filter((p) => {
-    const shared = sharedTags(p).length
-    if (mode === 'chill') return shared > 0
-    return shared === 0 || (LEVEL_RANK[p.level] ?? 0) > (LEVEL_RANK[MY_LEVEL] ?? 0)
-  })
-}
 
 const MODE_NAME: Record<Mode, string> = {
   chill: '轻松闲聊',
@@ -211,30 +180,23 @@ export function mountLobby(): void {
     }
   }
 
-  const drawResults = (): void => {
-    if (!mode) {
-      results.innerHTML = ''
-      return
-    }
-    const list = partnersFor(mode).slice(0, 4)
-    const current = mode
+  const drawResults = (list: Partner[]): void => {
     if (list.length === 0) {
       results.innerHTML = '<div class="empty-box">这类人现在都不在线，换个模式试试</div>'
       return
     }
+    const current = mode
     results.innerHTML = `
       <div class="grid-mates">
         ${list
           .map((p) => {
-            const shared = sharedTags(p)
-            const diff = p.tags.filter((t) => !MY_TAGS.includes(t))
             const badge =
               current === 'chill'
-                ? `<span class="shared">共同标签 ${shared.length}</span>`
-                : diff.length >= 2
-                  ? `<span class="shared diff">话题差异 ${diff.length}</span>`
-                  : diff.length === 1
-                    ? `<span class="shared diff">新话题 ${diff[0]}</span>`
+                ? `<span class="shared">共同标签 ${p.shared.length}</span>`
+                : p.diff.length >= 2
+                  ? `<span class="shared diff">话题差异 ${p.diff.length}</span>`
+                  : p.diff.length === 1
+                    ? `<span class="shared diff">新话题 ${p.diff[0]}</span>`
                     : '<span class="shared diff">等级更高</span>'
             return `
           <article class="mate">
@@ -244,7 +206,9 @@ export function mountLobby(): void {
               ${badge}
             </div>
             <div class="tags">
-              ${p.tags.map((t) => `<span class="tag ${shared.includes(t) ? 'hit' : ''}">${t}</span>`).join('')}
+              ${p.tags
+                .map((t) => `<span class="tag ${p.shared.includes(t) ? 'hit' : ''}">${t}</span>`)
+                .join('')}
             </div>
             <div class="mate-actions">
               <button class="btn sm ${invited === p.name ? 'ghost' : ''}" type="button" data-invite="${p.name}"
@@ -260,12 +224,12 @@ export function mountLobby(): void {
         invited = btn.dataset.invite ?? ''
         stopTimer()
         drawSearch()
-        drawResults()
+        drawResults(list)
       }
     })
   }
 
-  const startSearch = (next: Mode): void => {
+  const startSearch = async (next: Mode): Promise<void> => {
     mode = next
     sec = 0
     invited = ''
@@ -274,7 +238,8 @@ export function mountLobby(): void {
     head.hidden = true
     modesEl.hidden = true
     drawSearch()
-    drawResults()
+    results.innerHTML = ''
+
     const wait = document.querySelector<HTMLSpanElement>('#wait')
     if (wait) wait.textContent = '0'
     timer = window.setInterval(() => {
@@ -283,6 +248,15 @@ export function mountLobby(): void {
       if (el) el.textContent = String(sec)
       if (sec === 15) drawSearch()
     }, 1000)
+
+    // 语伴从数据库来（30 个人里筛）
+    const res = await api.partners(next, MY_TAGS, MY_LEVEL)
+    if (!mode) return // 连不上之前用户已经取消了
+    if (!res.ok) {
+      results.innerHTML = `<div class="empty-box">${res.error}</div>`
+      return
+    }
+    drawResults(res.data.partners)
   }
 
   function cancelSearch(): void {
@@ -303,7 +277,6 @@ export function mountLobby(): void {
   }
 
   $<HTMLButtonElement>('#topic-next').onclick = () => {
-    // 随机换，且不会连着抽到同一个；不显示总数，免得像“库里只有 3 条”
     if (TOPICS.length < 2) return
     let next = currentTopic
     while (next === currentTopic) next = Math.floor(Math.random() * TOPICS.length)
@@ -312,6 +285,6 @@ export function mountLobby(): void {
   }
 
   modesEl.querySelectorAll<HTMLButtonElement>('.mode').forEach((btn) => {
-    btn.onclick = () => startSearch((btn.dataset.mode as Mode) ?? 'chill')
+    btn.onclick = () => void startSearch((btn.dataset.mode as Mode) ?? 'chill')
   })
 }
