@@ -320,10 +320,6 @@ const server = createServer(async (req, res) => {
         | undefined
       if (!user) return send(res, 404, { error: '账号不存在' })
 
-      const stat = db
-        .prepare('SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS sessions FROM practices WHERE user_account = ?')
-        .get(account) as { totalMinutes: number; sessions: number }
-
       const rows = db
         .prepare(
           'SELECT partner_name, minutes, created_at, mode, partner_tags FROM practices WHERE user_account = ? ORDER BY created_at DESC LIMIT 20',
@@ -336,10 +332,57 @@ const server = createServer(async (req, res) => {
         partner_tags: string | null
       }[]
 
+      /* 成长图谱与徽章：用全部记录算，不是只算最近 20 条 */
+      const all = db
+        .prepare('SELECT partner_name, minutes, created_at, mode, partner_tags FROM practices WHERE user_account = ?')
+        .all(account) as { partner_name: string; minutes: number; created_at: number; mode: string | null; partner_tags: string | null }[]
+
+      const topicMinutes = new Map<string, number>()
+      // 社交偏好标签不是"话题"，不进话题分布
+      const SOCIAL_TAGS = new Set(['破冰者', '慢热型', '倾听者', '深聊派'])
+      for (const r of all) {
+        for (const tag of (r.partner_tags ?? '').split(',').filter(Boolean)) {
+          if (SOCIAL_TAGS.has(tag)) continue
+          topicMinutes.set(tag, (topicMinutes.get(tag) ?? 0) + r.minutes)
+        }
+      }
+      const topics = [...topicMinutes.entries()]
+        .map(([tag, minutes]) => ({ tag, minutes }))
+        .sort((a, b) => b.minutes - a.minutes)
+
+      const sessions = all.length
+      const totalMinutes = all.reduce((s, r) => s + r.minutes, 0)
+      const maxMinutes = all.reduce((m, r) => Math.max(m, r.minutes), 0)
+      const hasStretch = all.some((r) => r.mode === 'stretch')
+      const partnerCount = new Set(all.map((r) => r.partner_name)).size
+
+      const days = [...new Set(all.map((r) => new Date(Number(r.created_at)).toISOString().slice(0, 10)))]
+        .sort()
+        .reverse()
+      let streak = days.length ? 1 : 0
+      for (let i = 1; i < days.length; i++) {
+        const a = new Date(`${days[i - 1]}T00:00:00Z`).getTime()
+        const b = new Date(`${days[i]}T00:00:00Z`).getTime()
+        if (a - b === 86400000) streak++
+        else break
+      }
+
+      const badges = [
+        { id: 'first', title: '第一次开口', unlocked: sessions >= 1 },
+        { id: 'streak5', title: '连续 5 天', unlocked: streak >= 5 },
+        { id: 'ten', title: '10 分钟不冷场', unlocked: maxMinutes >= 10 },
+        { id: 'stretch', title: '完成进阶挑战', unlocked: hasStretch },
+        { id: 'min300', title: '累计 300 分钟', unlocked: totalMinutes >= 300 },
+        { id: 'friends3', title: '交到 3 个语伴', unlocked: partnerCount >= 3 },
+        { id: 'b2', title: '等级升到 B2', unlocked: user.level === 'B2' },
+        // 需要"回看对话"这个行为才能算，先固定未解锁
+        { id: 'review20', title: '回看 20 次', unlocked: false },
+      ]
+
       return send(res, 200, {
         ok: true,
         user: { account: user.account, level: user.level, tags: user.tags.split(',').filter(Boolean) },
-        stats: { totalMinutes: stat.totalMinutes, sessions: stat.sessions },
+        stats: { totalMinutes, sessions },
         recent: rows.map((r) => ({
           partner: r.partner_name,
           minutes: r.minutes,
@@ -347,6 +390,8 @@ const server = createServer(async (req, res) => {
           mode: r.mode,
           tags: (r.partner_tags ?? '').split(',').filter(Boolean),
         })),
+        topics,
+        badges,
       })
     }
 

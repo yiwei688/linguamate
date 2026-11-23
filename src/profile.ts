@@ -51,6 +51,77 @@ function practiceList(recent: PracticeItem[]): string {
   return `<ul class="recent-list">${items.join('')}</ul>`
 }
 
+const SHORT: Record<string, string> = {
+  电影迷: '影视',
+  科技控: '科技',
+  旅行党: '旅行',
+  社会派: '社会',
+  音乐虫: '音乐',
+  美食家: '美食',
+  游戏党: '游戏',
+  读书人: '读书',
+}
+
+/** 话题分布雷达：维度 = 你聊过的标签，半径 = 花在那个话题上的分钟数 */
+function radarSvg(items: { tag: string; minutes: number }[]): string {
+  const n = items.length
+  const S = 300
+  const C = 150
+  const R = 100
+  const max = Math.max(...items.map((t) => t.minutes), 1)
+
+  const pt = (i: number, r: number): [number, number] => {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n
+    return [C + Math.cos(a) * r, C + Math.sin(a) * r]
+  }
+
+  const rings = [0.25, 0.5, 0.75, 1]
+    .map(
+      (k) =>
+        `<polygon points="${items.map((_, i) => pt(i, R * k).join(',')).join(' ')}" fill="none" stroke="#e6e7eb" />`,
+    )
+    .join('')
+  const axes = items
+    .map((_, i) => {
+      const [x, y] = pt(i, R)
+      return `<line x1="${C}" y1="${C}" x2="${x}" y2="${y}" stroke="#e6e7eb" />`
+    })
+    .join('')
+  const radii = items.map((t) => (t.minutes > 0 ? Math.max(R * 0.1, (t.minutes / max) * R) : 0))
+  const poly = items.map((_, i) => pt(i, radii[i]).join(',')).join(' ')
+  const dots = items
+    .map((_, i) => {
+      const [x, y] = pt(i, radii[i])
+      return `<circle cx="${x}" cy="${y}" r="3" fill="#12b3a6" />`
+    })
+    .join('')
+  const labels = items
+    .map((t, i) => {
+      const [x, y] = pt(i, R + 26)
+      return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#6b7280">${SHORT[t.tag] ?? t.tag}</text>`
+    })
+    .join('')
+
+  return `<svg class="radar" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
+    ${rings}${axes}
+    <polygon points="${poly}" fill="rgba(18,179,166,0.16)" stroke="#12b3a6" stroke-width="2" stroke-linejoin="round" />
+    ${dots}${labels}
+  </svg>`
+}
+
+function growthBlock(topics: { tag: string; minutes: number }[]): string {
+  if (topics.length === 0) {
+    return '<div class="empty-box">还没有练习记录，聊过一次就会有图</div>'
+  }
+  if (topics.length < 3) {
+    return `<ul class="topic-bars">${topics
+      .map((t) => `<li><span>${t.tag}</span><b>${t.minutes} 分钟</b></li>`)
+      .join('')}</ul>`
+  }
+  const top = topics.slice(0, 3).map((t) => `${t.tag} ${t.minutes}′`).join(' · ')
+  return `<div class="radar-wrap">${radarSvg(topics)}</div><p class="topic-top">聊得最多：${top}</p>`
+}
+
 function profileHtml(data: Profile): string {
   const user = data.user
   const last = data.recent.length ? mmdd(data.recent[0].at) : '—'
@@ -79,6 +150,26 @@ function profileHtml(data: Profile): string {
     <section class="card recent">
       <h2>最近练习</h2>
       ${practiceList(data.recent)}
+    </section>
+
+    <section class="card growth">
+      <h2>成长图谱</h2>
+      <p class="sub">按聊过的话题统计（分钟）</p>
+      ${growthBlock(data.topics)}
+    </section>
+
+    <section class="card badges-card">
+      <h2>成就墙</h2>
+      <div class="badge-grid">
+        ${data.badges
+          .map(
+            (b) =>
+              `<div class="badge ${b.unlocked ? '' : 'lock'}"><b>${b.title}</b><span>${
+                b.unlocked ? '已解锁' : '未解锁'
+              }</span></div>`,
+          )
+          .join('')}
+      </div>
     </section>`
 }
 

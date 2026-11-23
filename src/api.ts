@@ -44,6 +44,8 @@ export type Profile = {
   user: { account: string; level: string; tags: string[] }
   stats: { totalMinutes: number; sessions: number }
   recent: PracticeItem[]
+  topics: { tag: string; minutes: number }[]
+  badges: { id: string; title: string; unlocked: boolean }[]
 }
 
 export type RoomPublic = {
