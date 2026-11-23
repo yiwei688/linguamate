@@ -41,6 +41,34 @@ db.exec(`
   );
 `)
 
+// 轻量迁移：老库补两列（模式 / 对方标签），并把已有记录回填
+const practiceCols = db.prepare('PRAGMA table_info(practices)').all() as { name: string }[]
+const hasCol = (n: string): boolean => practiceCols.some((c) => c.name === n)
+if (!hasCol('mode')) db.exec('ALTER TABLE practices ADD COLUMN mode TEXT')
+if (!hasCol('partner_tags')) db.exec('ALTER TABLE practices ADD COLUMN partner_tags TEXT')
+
+/** 给缺 mode / partner_tags 的记录补上：按对方标签和 demo 的标签是否有交集判断闲聊/进阶 */
+export function backfillPracticeMeta(): void {
+  const rows = db
+    .prepare('SELECT id, partner_name, mode FROM practices WHERE mode IS NULL OR partner_tags IS NULL')
+    .all() as { id: number; partner_name: string; mode: string | null }[]
+  if (rows.length === 0) return
+
+  const demo = db.prepare("SELECT tags FROM users WHERE account = 'demo'").get() as { tags: string } | undefined
+  const myTags = demo ? demo.tags.split(',').filter(Boolean) : []
+  const getPartner = db.prepare('SELECT tags FROM partners WHERE name = ?')
+  const update = db.prepare('UPDATE practices SET mode = ?, partner_tags = ? WHERE id = ?')
+
+  for (const row of rows) {
+    const p = getPartner.get(row.partner_name) as { tags: string } | undefined
+    const tags = p ? p.tags.split(',').filter(Boolean) : []
+    const mode = row.mode ?? (tags.some((t) => myTags.includes(t)) ? 'chill' : 'stretch')
+    update.run(mode, tags.join(','), row.id)
+  }
+}
+
+backfillPracticeMeta()
+
 /** 密码不存明文：加盐后用 scrypt 搅碎 */
 export function hashPassword(password: string, salt = randomBytes(16).toString('hex')) {
   return { salt, hash: scryptSync(password, salt, 64).toString('hex') }
@@ -75,11 +103,15 @@ export function seedIfEmpty(): void {
   ).run('demo', demo.hash, demo.salt, '13800138000', 'demo@example.com', 'B1', '电影迷,慢热型', Date.now())
 
   const insertPractice = db.prepare(
-    'INSERT INTO practices (user_account, partner_name, minutes, created_at) VALUES (?, ?, ?, ?)',
+    'INSERT INTO practices (user_account, partner_name, minutes, created_at, mode, partner_tags) VALUES (?, ?, ?, ?, ?, ?)',
   )
   const day = 24 * 60 * 60 * 1000
+  const myTags = ['电影迷', '慢热型']
   for (let i = 0; i < 20; i++) {
-    insertPractice.run('demo', NAMES[i % NAMES.length], 5 + (i % 11), Date.now() - i * day)
+    const name = NAMES[i % NAMES.length]
+    const tags = [TAGS[i % TAGS.length], SOCIAL[(i * 3) % SOCIAL.length]]
+    const mode = tags.some((t) => myTags.includes(t)) ? 'chill' : 'stretch'
+    insertPractice.run('demo', name, 5 + (i % 11), Date.now() - i * day, mode, tags.join(','))
   }
 
   console.log('[db] 首次启动，已灌入 30 个语伴、demo 账号、20 条练习记录')

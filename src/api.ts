@@ -31,6 +31,20 @@ export type Partner = {
   diff: string[]
 }
 
+export type PracticeItem = {
+  partner: string
+  minutes: number
+  at: number
+  mode: 'chill' | 'stretch' | null
+  tags: string[]
+}
+
+export type Profile = {
+  user: { account: string; level: string; tags: string[] }
+  stats: { totalMinutes: number; sessions: number }
+  recent: PracticeItem[]
+}
+
 export const api = {
   register: (input: { account: string; password: string; phone: string; email: string }) =>
     request<{ ok: true; user: SessionUser }>('/register', input),
@@ -48,6 +62,9 @@ export const api = {
       `/practices?account=${encodeURIComponent(account)}`,
     ),
 
-  addPractice: (input: { account: string; partner: string; minutes: number }) =>
+  addPractice: (input: { account: string; partner: string; minutes: number; mode?: string; tags?: string[] }) =>
     request<{ ok: true }>('/practices', input),
+
+  profile: (account: string) =>
+    request<{ ok: true } & Profile>(`/profile?account=${encodeURIComponent(account)}`),
 }

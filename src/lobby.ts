@@ -77,7 +77,10 @@ export function lobbyView(): string {
         <span>${user?.account ?? '未登录'}</span>
         <span class="dot-sep">·</span>
         <span>${MY_LEVEL}</span>
-        <button class="link" id="lobby-logout">退出</button>
+        <div class="top-actions">
+          <a class="pill-link" href="#/me">我的</a>
+          <button class="link-quit" id="lobby-logout">退出</button>
+        </div>
       </div>
     </div>
 

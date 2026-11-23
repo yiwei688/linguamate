@@ -127,14 +127,51 @@ const server = createServer(async (req, res) => {
       const account = str(body.account)
       const partner = str(body.partner) || 'AI 语伴'
       const minutes = Number(body.minutes) || 1
+      const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
+      const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : []
       if (!account) return send(res, 400, { error: '缺少 account' })
-      db.prepare('INSERT INTO practices (user_account, partner_name, minutes, created_at) VALUES (?, ?, ?, ?)').run(
-        account,
-        partner,
-        Math.max(1, Math.min(120, minutes)),
-        Date.now(),
-      )
+      db.prepare(
+        'INSERT INTO practices (user_account, partner_name, minutes, created_at, mode, partner_tags) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(account, partner, Math.max(1, Math.min(120, minutes)), Date.now(), mode, tags.join(','))
       return send(res, 201, { ok: true })
+    }
+
+    if (req.method === 'GET' && path === '/api/profile') {
+      const account = url.searchParams.get('account') ?? ''
+
+      const user = db.prepare('SELECT account, level, tags FROM users WHERE account = ?').get(account) as
+        | { account: string; level: string; tags: string }
+        | undefined
+      if (!user) return send(res, 404, { error: '账号不存在' })
+
+      const stat = db
+        .prepare('SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS sessions FROM practices WHERE user_account = ?')
+        .get(account) as { totalMinutes: number; sessions: number }
+
+      const rows = db
+        .prepare(
+          'SELECT partner_name, minutes, created_at, mode, partner_tags FROM practices WHERE user_account = ? ORDER BY created_at DESC LIMIT 20',
+        )
+        .all(account) as {
+        partner_name: string
+        minutes: number
+        created_at: number
+        mode: string | null
+        partner_tags: string | null
+      }[]
+
+      return send(res, 200, {
+        ok: true,
+        user: { account: user.account, level: user.level, tags: user.tags.split(',').filter(Boolean) },
+        stats: { totalMinutes: stat.totalMinutes, sessions: stat.sessions },
+        recent: rows.map((r) => ({
+          partner: r.partner_name,
+          minutes: r.minutes,
+          at: r.created_at,
+          mode: r.mode,
+          tags: (r.partner_tags ?? '').split(',').filter(Boolean),
+        })),
+      })
     }
 
     if (path === '/api/health') return send(res, 200, { ok: true })

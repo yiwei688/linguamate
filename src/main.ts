@@ -1,6 +1,7 @@
 import './style.css'
 import { currentUser, login, register } from './auth'
 import { lobbyView, mountLobby } from './lobby'
+import { profileView, mountProfile } from './profile'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -168,6 +169,15 @@ function route(): void {
       return
     }
     render(lobbyView(), mountLobby)
+    return
+  }
+
+  if (path === 'me') {
+    if (!currentUser()) {
+      location.hash = '#/login'
+      return
+    }
+    render(profileView(), mountProfile)
     return
   }
 

@@ -208,6 +208,52 @@ h1 {
   display: none;
 }
 
+/* 顶栏右侧操作：进「我的」用描边按钮，退出用深一点的文字 */
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pill-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pill-link:hover {
+  border-color: var(--accent);
+  color: #c2410c;
+  background: #fff9f6;
+}
+
+.link-quit {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.link-quit:hover {
+  border-color: #fca5a5;
+  background: #fff7f7;
+  color: #dc2626;
+}
+
 /* ---------------- 匹配大厅 ---------------- */
 
 .lobby {
