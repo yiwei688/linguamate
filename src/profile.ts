@@ -43,7 +43,7 @@ function practiceList(recent: PracticeItem[]): string {
       <span class="r-date">${mmdd(r.at)}</span>
       <span class="r-who">${r.partner}</span>
       ${mode}
-      <span class="r-min">${r.minutes} 分钟</span>
+      <span class="r-min ${r.minutes < 3 ? 'short' : ''}">${r.minutes} 分钟</span>
       <span class="r-tags">${r.tags.map((t) => `<i>${t}</i>`).join('')}</span>
     </li>`)
   }

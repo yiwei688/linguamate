@@ -2,6 +2,8 @@ import './style.css'
 import { currentUser, login, register } from './auth'
 import { lobbyView, mountLobby } from './lobby'
 import { profileView, mountProfile } from './profile'
+import { joinView, mountJoin, roomView, mountRoom, waitView, mountWait } from './room'
+import { runCleanups } from './lifecycle'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -150,34 +152,49 @@ function mountRegister(): void {
 /* ---------------- 路由 ---------------- */
 
 function render(html: string, mount: () => void): void {
+  runCleanups()
   app.innerHTML = html
   mount()
 }
 
 function route(): void {
-  const path = location.hash.replace(/^#\/?/, '') || 'login'
+  const raw = location.hash.replace(/^#\/?/, '')
+  const [page = 'login', param = ''] = raw.split('/')
 
-  if (path === 'register') {
+  if (page === 'register') {
     makeCaptcha()
     render(registerView(), mountRegister)
     return
   }
 
-  if (path === 'app') {
-    if (!currentUser()) {
-      location.hash = '#/login'
-      return
-    }
+  const needsLogin = page === 'app' || page === 'me' || page === 'wait' || page === 'join' || page === 'room'
+  if (needsLogin && !currentUser()) {
+    location.hash = '#/login'
+    return
+  }
+
+  if (page === 'app') {
     render(lobbyView(), mountLobby)
     return
   }
 
-  if (path === 'me') {
-    if (!currentUser()) {
-      location.hash = '#/login'
-      return
-    }
+  if (page === 'me') {
     render(profileView(), mountProfile)
+    return
+  }
+
+  if (page === 'wait' && param) {
+    render(waitView(param), () => mountWait(param))
+    return
+  }
+
+  if (page === 'join') {
+    render(joinView(), mountJoin)
+    return
+  }
+
+  if (page === 'room' && param) {
+    render(roomView(param), () => mountRoom(param))
     return
   }
 

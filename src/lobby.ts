@@ -1,6 +1,8 @@
 import './lobby.css'
 import { api, type Partner } from './api'
 import { currentUser, logout } from './auth'
+import { clientId } from './client'
+import { onLeave } from './lifecycle'
 
 type Mode = 'chill' | 'stretch'
 
@@ -10,7 +12,6 @@ type Topic = {
   tips: { en: string; cn: string }[]
 }
 
-// 我的画像来自数据库（登录时一起返回）；定级做好之前，新用户是默认标签
 const me = currentUser()
 const MY_LEVEL = me?.level ?? 'B1'
 const MY_TAGS = me?.tags ?? []
@@ -78,6 +79,13 @@ export function lobbyView(): string {
         <span class="dot-sep">·</span>
         <span>${MY_LEVEL}</span>
         <div class="top-actions">
+          <div class="menu" id="room-menu">
+            <button class="pill-link" type="button" id="room-menu-btn">房间 ▾</button>
+            <div class="menu-panel">
+              <button type="button" data-room="create">创建房间</button>
+              <button type="button" data-room="join">加入房间</button>
+            </div>
+          </div>
           <a class="pill-link" href="#/me">我的</a>
           <button class="link-quit" id="lobby-logout">退出</button>
         </div>
@@ -116,6 +124,24 @@ export function lobbyView(): string {
         </section>
       </aside>
     </div>
+
+    <div class="mask" id="invite-mask" hidden>
+      <div class="modal invite-modal">
+        <h3>有人邀请你一起练</h3>
+        <div id="invite-list"></div>
+      </div>
+    </div>
+
+    <div class="mask" id="new-room-mask" hidden>
+      <div class="modal new-room-modal">
+        <h3>创建房间，想怎么聊？</h3>
+        <div class="new-room-actions">
+          <button class="btn" type="button" data-new-mode="chill">轻松闲聊</button>
+          <button class="btn ghost" type="button" data-new-mode="stretch">挑战进阶</button>
+        </div>
+        <button class="link" type="button" id="new-room-cancel">取消</button>
+      </div>
+    </div>
   </div>`
 }
 
@@ -126,14 +152,17 @@ export function mountLobby(): void {
   const searchArea = $<HTMLDivElement>('#search-area')
   const results = $<HTMLDivElement>('#results')
   const topicBox = $<HTMLDivElement>('#topic-box')
+  const mask = $<HTMLDivElement>('#invite-mask')
+  const inviteList = $<HTMLDivElement>('#invite-list')
 
   let mode: Mode | null = null
   let sec = 0
   let timer: number | undefined
-  let invited = ''
+  let refreshTimer: number | undefined
   let currentTopic = 0
   let offset = 0
   let total = 0
+  let realCount = 0
 
   const stopTimer = (): void => {
     if (timer !== undefined) {
@@ -151,19 +180,6 @@ export function mountLobby(): void {
       searchArea.innerHTML = ''
       return
     }
-
-    if (invited) {
-      searchArea.innerHTML = `
-        <div class="bar">
-          <span class="search-dot"></span>
-          <b>已邀请 ${invited}</b>
-          <span class="muted">等 TA 接受…（进房间还没做）</span>
-          <button class="btn ghost sm" type="button" id="cancel">取消并返回</button>
-        </div>`
-      $<HTMLButtonElement>('#cancel').onclick = cancelSearch
-      return
-    }
-
     searchArea.innerHTML = `
       <div class="bar">
         <span class="search-dot"></span>
@@ -172,7 +188,7 @@ export function mountLobby(): void {
         <button class="btn ghost sm" type="button" id="cancel">取消匹配</button>
       </div>
       <p class="ai-hint" id="ai-hint" ${sec < 15 ? 'hidden' : ''}>
-        还没找到真人？<button class="link" type="button" id="ai">换 AI 练习 →</button>
+        还没找到合适的？<button class="link" type="button" id="ai">换 AI 练习 →</button>
       </p>`
 
     $<HTMLButtonElement>('#cancel').onclick = cancelSearch
@@ -187,23 +203,29 @@ export function mountLobby(): void {
 
   const drawResults = (list: Partner[]): void => {
     if (list.length === 0) {
-      results.innerHTML = '<div class="empty-box">这类人现在都不在线，换个模式试试</div>'
+      results.innerHTML = '<div class="empty-box">这个模式里现在没有人，等一会儿再试</div>'
       return
     }
-    const current = mode
+    const fakeShown = list.length - realCount
+    const canReshuffle = total > fakeShown
+
     results.innerHTML = `
-      ${total > list.length ? '<div class="results-bar"><button class="btn ghost sm" type="button" id="reshuffle">换一批</button></div>' : ''}
+      ${canReshuffle ? '<div class="results-bar"><button class="btn ghost sm" type="button" id="reshuffle">换一批</button></div>' : ''}
       <div class="grid-mates">
         ${list
           .map((p) => {
-            const badge =
-              current === 'chill'
+            const badge = p.online
+              ? '<span class="shared">在线</span>'
+              : mode === 'chill'
                 ? `<span class="shared">共同标签 ${p.shared.length}</span>`
                 : p.diff.length >= 2
                   ? `<span class="shared diff">话题差异 ${p.diff.length}</span>`
                   : p.diff.length === 1
                     ? `<span class="shared diff">新话题 ${p.diff[0]}</span>`
                     : '<span class="shared diff">等级更高</span>'
+            const action = p.online
+              ? `<button class="btn sm" type="button" data-invite-user="${p.name}">邀请</button>`
+              : '<span class="muted">示例语伴</span>'
             return `
           <article class="mate">
             <div class="mate-head">
@@ -212,25 +234,32 @@ export function mountLobby(): void {
               ${badge}
             </div>
             <div class="tags">
-              ${p.tags
-                .map((t) => `<span class="tag ${p.shared.includes(t) ? 'hit' : ''}">${t}</span>`)
-                .join('')}
+              ${p.tags.map((t) => `<span class="tag ${p.shared.includes(t) ? 'hit' : ''}">${t}</span>`).join('')}
             </div>
-            <div class="mate-actions">
-              <button class="btn sm ${invited === p.name ? 'ghost' : ''}" type="button" data-invite="${p.name}"
-                ${invited === p.name ? 'disabled' : ''}>${invited === p.name ? '已邀请' : '邀请'}</button>
-            </div>
+            <div class="mate-actions">${action}</div>
           </article>`
           })
           .join('')}
       </div>`
 
-    results.querySelectorAll<HTMLButtonElement>('[data-invite]').forEach((btn) => {
-      btn.onclick = () => {
-        invited = btn.dataset.invite ?? ''
-        stopTimer()
-        drawSearch()
-        drawResults(list)
+    results.querySelectorAll<HTMLButtonElement>('[data-invite-user]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!me) return
+        btn.disabled = true
+        btn.textContent = '邀请中…'
+        const res = await api.inviteSend({
+          fromAccount: me.account,
+          fromClientId: clientId(),
+          toAccount: btn.dataset.inviteUser ?? '',
+          mode: mode ?? 'chill',
+        })
+        if (!res.ok) {
+          btn.disabled = false
+          btn.textContent = '邀请'
+          results.insertAdjacentHTML('beforeend', `<div class="empty-box">${res.error}</div>`)
+          return
+        }
+        location.hash = '#/wait/' + res.data.roomId
       }
     })
 
@@ -240,22 +269,27 @@ export function mountLobby(): void {
 
   const loadPartners = async (nextOffset: number): Promise<void> => {
     const target = mode
-    if (!target) return
-    const res = await api.partners(target, MY_TAGS, MY_LEVEL, nextOffset)
-    if (!mode || mode !== target) return // 请求回来之前用户已经取消了
+    if (!target || !me) return
+    const res = await api.partners(me.account, target, MY_TAGS, MY_LEVEL, nextOffset)
+    if (!mode || mode !== target) return
     if (!res.ok) {
       results.innerHTML = `<div class="empty-box">${res.error}</div>`
       return
     }
     total = res.data.total
+    realCount = res.data.realCount
     offset = total ? nextOffset % total : 0
     drawResults(res.data.partners)
+  }
+
+  const publishMode = async (next: Mode | null): Promise<void> => {
+    if (!me) return
+    await api.presence({ account: me.account, clientId: clientId(), mode: next })
   }
 
   const startSearch = async (next: Mode): Promise<void> => {
     mode = next
     sec = 0
-    invited = ''
     stopTimer()
     stage.classList.add('is-searching')
     head.hidden = true
@@ -272,24 +306,153 @@ export function mountLobby(): void {
       if (sec === 15) drawSearch()
     }, 1000)
 
-    // 语伴从数据库来（30 个人的池子里筛，每次给 4 个）
     offset = 0
     total = 0
+    realCount = 0
+    await publishMode(next)
     await loadPartners(0)
+
+    // 每 3 秒静默刷一次列表：让"刚点进这个模式的人"能出现在彼此列表里
+    window.clearInterval(refreshTimer)
+    refreshTimer = window.setInterval(() => {
+      if (mode) void loadPartners(offset)
+    }, 3000)
   }
 
   function cancelSearch(): void {
     stopTimer()
+    window.clearInterval(refreshTimer)
+    if (mode) void api.queueLeave({ mode, clientId: clientId() })
     mode = null
     sec = 0
-    invited = ''
     offset = 0
     total = 0
+    realCount = 0
     searchArea.innerHTML = ''
     results.innerHTML = ''
     stage.classList.remove('is-searching')
     head.hidden = false
     modesEl.hidden = false
+    void publishMode(null)
+  }
+
+  /* ---------------- 收到的邀请：居中弹窗，先处理它 ---------------- */
+
+  const renderInvites = (list: { id: string; from: string; roomId: string; tags: string[] }[]): void => {
+    if (!me) return
+    if (list.length === 0) {
+      mask.hidden = true
+      inviteList.innerHTML = ''
+      return
+    }
+    mask.hidden = false
+    inviteList.innerHTML = list
+      .map(
+        (inv) => `
+        <div class="invite-row" data-invite="${inv.id}">
+          <b class="invite-name">${inv.from}</b>
+          <div class="tags">
+            ${inv.tags.map((t) => `<span class="tag ${MY_TAGS.includes(t) ? 'hit' : ''}">${t}</span>`).join('')}
+          </div>
+          <div class="invite-row-actions">
+            <button class="btn sm" type="button" data-accept="${inv.id}">接受</button>
+            <button class="btn ghost sm" type="button" data-decline="${inv.id}">拒绝</button>
+          </div>
+        </div>`,
+      )
+      .join('')
+
+    inviteList.querySelectorAll<HTMLButtonElement>('[data-accept]').forEach((btn) => {
+      btn.onclick = async () => {
+        const r = await api.inviteRespond({
+          inviteId: btn.dataset.accept ?? '',
+          account: me.account,
+          clientId: clientId(),
+          accept: true,
+        })
+        if (r.ok && r.data.roomId) {
+          mask.hidden = true
+          location.hash = '#/room/' + r.data.roomId
+        }
+      }
+    })
+    inviteList.querySelectorAll<HTMLButtonElement>('[data-decline]').forEach((btn) => {
+      btn.onclick = async () => {
+        await api.inviteRespond({
+          inviteId: btn.dataset.decline ?? '',
+          account: me.account,
+          clientId: clientId(),
+          accept: false,
+        })
+        await pollInvites()
+      }
+    })
+  }
+
+  const pollInvites = async (): Promise<void> => {
+    if (!me) return
+    const res = await api.invites(me.account)
+    if (!res.ok) return
+    renderInvites(res.data.invites)
+  }
+
+  /* ---------------- 顶部「房间」下拉：移开 2 秒后才收，移到面板上不收 ---------------- */
+
+  const menuEl = $<HTMLDivElement>('#room-menu')
+  let menuTimer: number | undefined
+
+  const openMenu = (): void => {
+    window.clearTimeout(menuTimer)
+    menuEl.classList.add('open')
+  }
+
+  const scheduleCloseMenu = (): void => {
+    window.clearTimeout(menuTimer)
+    menuTimer = window.setTimeout(() => menuEl.classList.remove('open'), 800)
+  }
+
+  const closeMenuNow = (): void => {
+    window.clearTimeout(menuTimer)
+    menuEl.classList.remove('open')
+  }
+
+  menuEl.addEventListener('mouseenter', openMenu)
+  menuEl.addEventListener('mouseleave', scheduleCloseMenu)
+  document.addEventListener('click', closeMenuNow)
+
+  $<HTMLButtonElement>('#room-menu-btn').onclick = (e) => {
+    e.stopPropagation()
+    menuEl.classList.toggle('open')
+  }
+
+  const newRoomMask = $<HTMLDivElement>('#new-room-mask')
+
+  document.querySelectorAll<HTMLButtonElement>('[data-room]').forEach((btn) => {
+    btn.onclick = () => {
+      if (btn.dataset.room === 'join') {
+        location.hash = '#/join'
+        return
+      }
+      newRoomMask.hidden = false
+    }
+  })
+
+  newRoomMask.querySelectorAll<HTMLButtonElement>('[data-new-mode]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!me) return
+      const res = await api.roomCreate({
+        account: me.account,
+        clientId: clientId(),
+        mode: btn.dataset.newMode,
+      })
+      if (!res.ok) return
+      newRoomMask.hidden = true
+      location.hash = '#/room/' + res.data.roomId
+    }
+  })
+
+  $<HTMLButtonElement>('#new-room-cancel').onclick = () => {
+    newRoomMask.hidden = true
   }
 
   $<HTMLButtonElement>('#lobby-logout').onclick = () => {
@@ -307,5 +470,23 @@ export function mountLobby(): void {
 
   modesEl.querySelectorAll<HTMLButtonElement>('.mode').forEach((btn) => {
     btn.onclick = () => void startSearch((btn.dataset.mode as Mode) ?? 'chill')
+  })
+
+  // 心跳：告诉服务器我现在在哪个模式（不点模式就 mode=null，不出现在别人列表里）
+  const hbTimer = window.setInterval(() => void publishMode(mode), 3000)
+  const ivTimer = window.setInterval(() => void pollInvites(), 2000)
+  void publishMode(null)
+  void pollInvites()
+
+  onLeave(() => {
+    window.clearInterval(hbTimer)
+    window.clearInterval(ivTimer)
+    window.clearInterval(refreshTimer)
+    window.clearTimeout(menuTimer)
+    document.removeEventListener('click', closeMenuNow)
+    menuEl.removeEventListener('mouseenter', openMenu)
+    menuEl.removeEventListener('mouseleave', scheduleCloseMenu)
+    stopTimer()
+    void publishMode(null)
   })
 }

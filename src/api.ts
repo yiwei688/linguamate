@@ -29,6 +29,7 @@ export type Partner = {
   tags: string[]
   shared: string[]
   diff: string[]
+  online?: boolean
 }
 
 export type PracticeItem = {
@@ -45,6 +46,18 @@ export type Profile = {
   recent: PracticeItem[]
 }
 
+export type RoomPublic = {
+  id: string
+  partner: string
+  mode: string
+  tags: string[]
+  host: { account: string }
+  guest: { account: string } | null
+  startedAt: number | null
+}
+
+export type SignalMessage = { seq: number; from: string; kind: string; data: unknown }
+
 export const api = {
   register: (input: { account: string; password: string; phone: string; email: string }) =>
     request<{ ok: true; user: SessionUser }>('/register', input),
@@ -52,9 +65,9 @@ export const api = {
   login: (input: { account: string; password: string }) =>
     request<{ ok: true; user: SessionUser }>('/login', input),
 
-  partners: (mode: string, tags: string[], level: string, offset = 0) =>
-    request<{ ok: true; partners: Partner[]; total: number }>(
-      `/partners?mode=${encodeURIComponent(mode)}&tags=${encodeURIComponent(tags.join(','))}&level=${encodeURIComponent(level)}&offset=${offset}`,
+  partners: (account: string, mode: string, tags: string[], level: string, offset = 0) =>
+    request<{ ok: true; partners: Partner[]; total: number; realCount: number }>(
+      `/partners?mode=${encodeURIComponent(mode)}&tags=${encodeURIComponent(tags.join(','))}&level=${encodeURIComponent(level)}&offset=${offset}&account=${encodeURIComponent(account)}`,
     ),
 
   practices: (account: string) =>
@@ -62,9 +75,58 @@ export const api = {
       `/practices?account=${encodeURIComponent(account)}`,
     ),
 
-  addPractice: (input: { account: string; partner: string; minutes: number; mode?: string; tags?: string[] }) =>
-    request<{ ok: true }>('/practices', input),
+  addPractice: (input: {
+    account: string
+    partnerAccount?: string
+    partner?: string
+    minutes: number
+    mode?: string
+    tags?: string[]
+  }) => request<{ ok: true }>('/practices', input),
 
   profile: (account: string) =>
     request<{ ok: true } & Profile>(`/profile?account=${encodeURIComponent(account)}`),
+
+  roomInvite: (input: { account: string; partner: string; mode: string; tags: string[]; clientId: string }) =>
+    request<{ ok: true; roomId: string }>('/room/invite', input),
+
+  roomJoin: (input: { roomId: string; account: string; clientId: string }) =>
+    request<{ ok: true; room: RoomPublic }>('/room/join', input),
+
+  roomState: (roomId: string, clientId: string) =>
+    request<{ ok: true; room: RoomPublic; role: 'host' | 'guest' | 'none' }>(
+      `/room/state?roomId=${encodeURIComponent(roomId)}&clientId=${encodeURIComponent(clientId)}`,
+    ),
+
+  roomLeave: (input: { roomId: string; clientId: string }) => request<{ ok: true }>('/room/leave', input),
+
+  queueJoin: (input: { mode: string; account: string; clientId: string }) =>
+    request<{ ok: true; roomId?: string; waiting?: boolean }>('/queue', input),
+
+  queueLeave: (input: { mode: string; clientId: string }) => request<{ ok: true }>('/queue/leave', input),
+
+  presence: (input: { account: string; clientId: string; mode: 'chill' | 'stretch' | null }) =>
+    request<{ ok: true; online: { account: string; level: string }[] }>('/presence', input),
+
+  inviteSend: (input: { fromAccount: string; fromClientId: string; toAccount: string; mode: string }) =>
+    request<{ ok: true; roomId: string; inviteId: string }>('/invite', input),
+
+  invites: (account: string) =>
+    request<{ ok: true; invites: { id: string; from: string; roomId: string; mode: string; tags: string[] }[] }>(
+      `/invites?account=${encodeURIComponent(account)}`,
+    ),
+
+  inviteRespond: (input: { inviteId: string; account: string; clientId: string; accept: boolean }) =>
+    request<{ ok: true; accepted: boolean; roomId?: string }>('/invite/respond', input),
+
+  roomCreate: (input: { account: string; clientId: string; mode?: string }) =>
+    request<{ ok: true; roomId: string }>('/room/create', input),
+
+  signalSend: (input: { roomId: string; from: string; kind: string; data: unknown }) =>
+    request<{ ok: true; seq: number }>('/signal', input),
+
+  signalPoll: (roomId: string, since: number) =>
+    request<{ ok: true; seq: number; messages: SignalMessage[] }>(
+      `/signal?roomId=${encodeURIComponent(roomId)}&since=${since}`,
+    ),
 }

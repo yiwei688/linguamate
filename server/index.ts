@@ -55,6 +55,161 @@ function matchPartners(mode: string, myTags: string[], myLevel: string) {
 
 const PAGE_SIZE = 4
 
+/** 当前在某个模式里的真人（自己要能出现在别人的列表里，但不出现在自己的列表里） */
+function realPartners(mode: string, me: string, myTags: string[], myLevel: string) {
+  const now = Date.now()
+  const seen = new Map<string, { account: string; level: string }>()
+  for (const p of online.values()) {
+    if (now - p.lastSeen > PRESENCE_TTL) continue
+    if (p.mode !== mode) continue
+    if (p.account === me) continue
+    seen.set(p.account, { account: p.account, level: p.level })
+  }
+
+  return [...seen.values()].map((u) => {
+    const row = db.prepare('SELECT tags FROM users WHERE account = ?').get(u.account) as
+      | { tags: string }
+      | undefined
+    const tags = (row?.tags ?? '').split(',').filter(Boolean)
+    const shared = tags.filter((t) => myTags.includes(t))
+    const diff = tags.filter((t) => !myTags.includes(t))
+    return {
+      name: u.account,
+      level: u.level,
+      color: '#12b3a6',
+      tags,
+      shared,
+      diff,
+      online: true,
+    }
+  })
+}
+
+/* ---------------- 房间与信令（只存在内存里，进程重启就清空） ---------------- */
+
+type Member = { clientId: string; account: string }
+
+type SignalMessage = { seq: number; from: string; kind: string; data: unknown }
+
+type Room = {
+  id: string
+  partner: string
+  mode: string
+  tags: string[]
+  host: Member
+  guest: Member | null
+  createdAt: number
+  startedAt: number | null
+  seq: number
+  messages: SignalMessage[]
+  recorded: boolean
+}
+
+const rooms = new Map<string, Room>()
+
+function newRoomId(): string {
+  let id = ''
+  do {
+    id = Math.random().toString(36).slice(2, 8).toUpperCase()
+  } while (rooms.has(id))
+  return id
+}
+
+function publicRoom(room: Room) {
+  return {
+    id: room.id,
+    partner: room.partner,
+    mode: room.mode,
+    tags: room.tags,
+    host: { account: room.host.account },
+    guest: room.guest ? { account: room.guest.account } : null,
+    startedAt: room.startedAt,
+  }
+}
+
+/** 有人在房间结束练习时，服务端一次性给双方各写一条（不再依赖两边各自的页面） */
+function recordSession(room: Room): void {
+  if (room.recorded || !room.guest || !room.startedAt) return
+  const minutes = Math.floor((Date.now() - room.startedAt) / 60000)
+  if (minutes < 1) return // 不足 1 分钟不记
+  room.recorded = true
+
+  const tagsOf = (account: string): string => {
+    const row = db.prepare('SELECT tags FROM users WHERE account = ?').get(account) as
+      | { tags: string }
+      | undefined
+    return row?.tags ?? ''
+  }
+  const insert = db.prepare(
+    'INSERT INTO practices (user_account, partner_name, minutes, created_at, mode, partner_tags) VALUES (?, ?, ?, ?, ?, ?)',
+  )
+  const now = Date.now()
+  insert.run(room.host.account, room.guest.account, minutes, now, room.mode, tagsOf(room.guest.account))
+  insert.run(room.guest.account, room.host.account, minutes, now, room.mode, tagsOf(room.host.account))
+}
+
+/** 防止内存里堆死房间：超过 2 小时没人管的直接清掉 */
+function pruneRooms(): void {
+  const limit = 2 * 60 * 60 * 1000
+  const now = Date.now()
+  for (const [id, room] of rooms) {
+    if (now - room.createdAt > limit) rooms.delete(id)
+  }
+}
+
+/* ---------------- 真人排队（随机匹配） ---------------- */
+
+type Waiter = { account: string; clientId: string; lastSeen: number }
+
+const WAIT_TTL = 15000
+const waitingByMode = new Map<string, Waiter[]>()
+const pendingRoom = new Map<string, string>()
+
+function freshWaiters(mode: string): Waiter[] {
+  const now = Date.now()
+  return (waitingByMode.get(mode) ?? []).filter((w) => now - w.lastSeen < WAIT_TTL)
+}
+
+/* ---------------- 在线状态与邀请 ---------------- */
+
+type Presence = { account: string; level: string; mode: string | null; lastSeen: number }
+
+type Invite = {
+  id: string
+  fromAccount: string
+  fromClientId: string
+  toAccount: string
+  roomId: string
+  createdAt: number
+}
+
+const PRESENCE_TTL = 12000
+const online = new Map<string, Presence>()
+const invites = new Map<string, Invite>()
+
+function newInviteId(): string {
+  let id = ''
+  do {
+    id = Math.random().toString(36).slice(2, 8).toUpperCase()
+  } while (invites.has(id))
+  return id
+}
+
+/** 在线列表 = 最近 12 秒内有过心跳、且不是我自己 */
+function onlineOthers(myAccount: string): { account: string; level: string }[] {
+  const now = Date.now()
+  const seen = new Map<string, { account: string; level: string }>()
+  for (const [clientId, p] of online) {
+    if (now - p.lastSeen > PRESENCE_TTL) {
+      online.delete(clientId)
+      continue
+    }
+    if (p.account === myAccount) continue
+    seen.set(p.account, { account: p.account, level: p.level })
+  }
+  return [...seen.values()]
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
   const path = url.pathname
@@ -105,13 +260,21 @@ const server = createServer(async (req, res) => {
       const mode = url.searchParams.get('mode') ?? 'chill'
       const myTags = (url.searchParams.get('tags') ?? '').split(',').filter(Boolean)
       const myLevel = url.searchParams.get('level') ?? 'B1'
+      const me = url.searchParams.get('account') ?? ''
       const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0)
 
-      const all = matchPartners(mode, myTags, myLevel)
-      const start = all.length ? offset % all.length : 0
-      // 从 offset 开始取 4 个，不够就从头补，这样"换一批"总能换到人
-      const page = [...all.slice(start), ...all.slice(0, start)].slice(0, PAGE_SIZE)
-      return send(res, 200, { ok: true, partners: page, total: all.length })
+      const real = realPartners(mode, me, myTags, myLevel)
+      const fake = matchPartners(mode, myTags, myLevel)
+      const start = fake.length ? offset % fake.length : 0
+      const fakePage = [...fake.slice(start), ...fake.slice(0, start)].slice(0, PAGE_SIZE)
+
+      // 真人固定排最前，示例语伴在后面轮换
+      return send(res, 200, {
+        ok: true,
+        partners: [...real.slice(0, PAGE_SIZE), ...fakePage],
+        total: fake.length,
+        realCount: Math.min(real.length, PAGE_SIZE),
+      })
     }
 
     if (req.method === 'GET' && path === '/api/practices') {
@@ -125,11 +288,24 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/api/practices') {
       const body = await readJson(req)
       const account = str(body.account)
-      const partner = str(body.partner) || 'AI 语伴'
+      const partnerAccount = str(body.partnerAccount)
+      let partner = str(body.partner) || 'AI 语伴'
+      let tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : []
       const minutes = Number(body.minutes) || 1
       const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
-      const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : []
       if (!account) return send(res, 400, { error: '缺少 account' })
+
+      // 有对方账号就直接查库拿名字和标签，前端不用自己拼
+      if (partnerAccount) {
+        const mate = db.prepare('SELECT account, tags FROM users WHERE account = ?').get(partnerAccount) as
+          | { account: string; tags: string }
+          | undefined
+        if (mate) {
+          partner = mate.account
+          tags = mate.tags.split(',').filter(Boolean)
+        }
+      }
+
       db.prepare(
         'INSERT INTO practices (user_account, partner_name, minutes, created_at, mode, partner_tags) VALUES (?, ?, ?, ?, ?, ?)',
       ).run(account, partner, Math.max(1, Math.min(120, minutes)), Date.now(), mode, tags.join(','))
@@ -172,6 +348,257 @@ const server = createServer(async (req, res) => {
           tags: (r.partner_tags ?? '').split(',').filter(Boolean),
         })),
       })
+    }
+
+    if (req.method === 'POST' && path === '/api/room/invite') {
+      pruneRooms()
+      const body = await readJson(req)
+      const account = str(body.account)
+      const clientId = str(body.clientId)
+      if (!account || !clientId) return send(res, 400, { error: '缺少 account 或 clientId' })
+
+      const room: Room = {
+        id: newRoomId(),
+        partner: str(body.partner) || '语伴',
+        mode: body.mode === 'stretch' ? 'stretch' : 'chill',
+        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [],
+        host: { clientId, account },
+        guest: null,
+        createdAt: Date.now(),
+        startedAt: null,
+        seq: 0,
+        messages: [],
+        recorded: false,
+      }
+      rooms.set(room.id, room)
+      return send(res, 201, { ok: true, roomId: room.id })
+    }
+
+    if (req.method === 'POST' && path === '/api/room/join') {
+      const body = await readJson(req)
+      const room = rooms.get(str(body.roomId).toUpperCase())
+      const account = str(body.account)
+      const clientId = str(body.clientId)
+      if (!room) return send(res, 404, { error: '房间不存在或已结束' })
+      if (!account || !clientId) return send(res, 400, { error: '缺少 account 或 clientId' })
+      if (room.host.clientId === clientId) return send(res, 200, { ok: true, room: publicRoom(room) })
+      if (room.guest && room.guest.clientId !== clientId) return send(res, 409, { error: '这个房间已经满了' })
+      room.guest = { clientId, account }
+      room.startedAt = Date.now()
+      room.recorded = false
+      return send(res, 200, { ok: true, room: publicRoom(room) })
+    }
+
+    if (req.method === 'GET' && path === '/api/room/state') {
+      const room = rooms.get((url.searchParams.get('roomId') ?? '').toUpperCase())
+      if (!room) return send(res, 404, { error: '房间不存在或已结束' })
+      const cid = url.searchParams.get('clientId') ?? ''
+      const role = room.host.clientId === cid ? 'host' : room.guest?.clientId === cid ? 'guest' : 'none'
+      return send(res, 200, { ok: true, room: publicRoom(room), role })
+    }
+
+    if (req.method === 'POST' && path === '/api/room/leave') {
+      const body = await readJson(req)
+      const room = rooms.get(str(body.roomId).toUpperCase())
+      if (!room) return send(res, 200, { ok: true })
+      const clientId = str(body.clientId)
+      if (room.host.clientId === clientId) {
+        recordSession(room)
+        rooms.delete(room.id)
+      } else if (room.guest && room.guest.clientId === clientId) {
+        recordSession(room)
+        room.guest = null
+        room.startedAt = null
+      }
+      return send(res, 200, { ok: true })
+    }
+
+    if (req.method === 'POST' && path === '/api/signal') {
+      const body = await readJson(req)
+      const room = rooms.get(str(body.roomId).toUpperCase())
+      if (!room) return send(res, 404, { error: '房间不存在' })
+      room.seq += 1
+      room.messages.push({ seq: room.seq, from: str(body.from), kind: str(body.kind), data: body.data })
+      if (room.messages.length > 500) room.messages.splice(0, room.messages.length - 500)
+      return send(res, 200, { ok: true, seq: room.seq })
+    }
+
+    if (req.method === 'GET' && path === '/api/signal') {
+      const room = rooms.get((url.searchParams.get('roomId') ?? '').toUpperCase())
+      if (!room) return send(res, 404, { error: '房间不存在' })
+      const since = Number(url.searchParams.get('since') ?? 0) || 0
+      return send(res, 200, {
+        ok: true,
+        seq: room.seq,
+        messages: room.messages.filter((m) => m.seq > since),
+      })
+    }
+
+    if (req.method === 'POST' && path === '/api/queue') {
+      const body = await readJson(req)
+      const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
+      const account = str(body.account)
+      const clientId = str(body.clientId)
+      if (!account || !clientId) return send(res, 400, { error: '缺少 account 或 clientId' })
+
+      // 已经配上房间了？下次轮询直接把房间号给他
+      const paired = pendingRoom.get(clientId)
+      if (paired) {
+        if (rooms.has(paired)) return send(res, 200, { ok: true, roomId: paired })
+        pendingRoom.delete(clientId)
+      }
+
+      const others = freshWaiters(mode).filter((w) => w.clientId !== clientId)
+      const partner = others[0]
+
+      if (partner) {
+        const room: Room = {
+          id: newRoomId(),
+          partner: account,
+          mode,
+          tags: [],
+          host: { clientId: partner.clientId, account: partner.account },
+          guest: { clientId, account },
+          createdAt: Date.now(),
+          startedAt: Date.now(),
+          seq: 0,
+          messages: [],
+          recorded: false,
+        }
+        rooms.set(room.id, room)
+        pendingRoom.set(partner.clientId, room.id)
+        pendingRoom.set(clientId, room.id)
+        waitingByMode.set(mode, others.slice(1))
+        return send(res, 200, { ok: true, roomId: room.id })
+      }
+
+      const me: Waiter = { account, clientId, lastSeen: Date.now() }
+      waitingByMode.set(mode, [...others, me])
+      return send(res, 200, { ok: true, waiting: true })
+    }
+
+    if (req.method === 'POST' && path === '/api/queue/leave') {
+      const body = await readJson(req)
+      const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
+      const clientId = str(body.clientId)
+      waitingByMode.set(mode, freshWaiters(mode).filter((w) => w.clientId !== clientId))
+      pendingRoom.delete(clientId)
+      return send(res, 200, { ok: true })
+    }
+
+    if (req.method === 'POST' && path === '/api/presence') {
+      const body = await readJson(req)
+      const account = str(body.account)
+      const clientId = str(body.clientId)
+      if (!account || !clientId) return send(res, 400, { error: '缺少 account 或 clientId' })
+      const row = db.prepare('SELECT level FROM users WHERE account = ?').get(account) as { level: string } | undefined
+      const mode = body.mode === 'chill' || body.mode === 'stretch' ? body.mode : null
+      online.set(clientId, { account, level: row?.level ?? 'B1', mode, lastSeen: Date.now() })
+      return send(res, 200, { ok: true, online: onlineOthers(account) })
+    }
+
+    if (req.method === 'POST' && path === '/api/invite') {
+      const body = await readJson(req)
+      const fromAccount = str(body.fromAccount)
+      const fromClientId = str(body.fromClientId)
+      const toAccount = str(body.toAccount)
+      const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
+      if (!fromAccount || !fromClientId || !toAccount) return send(res, 400, { error: '缺少参数' })
+
+      const room: Room = {
+        id: newRoomId(),
+        partner: toAccount,
+        mode,
+        tags: [],
+        host: { clientId: fromClientId, account: fromAccount },
+        guest: null,
+        createdAt: Date.now(),
+        startedAt: null,
+        seq: 0,
+        messages: [],
+        recorded: false,
+      }
+      rooms.set(room.id, room)
+
+      const invite: Invite = {
+        id: newInviteId(),
+        fromAccount,
+        fromClientId,
+        toAccount,
+        roomId: room.id,
+        createdAt: Date.now(),
+      }
+      invites.set(invite.id, invite)
+      return send(res, 201, { ok: true, roomId: room.id, inviteId: invite.id })
+    }
+
+    if (req.method === 'GET' && path === '/api/invites') {
+      const account = url.searchParams.get('account') ?? ''
+      const list = [...invites.values()]
+        .filter((i) => i.toAccount === account)
+        .filter((i) => {
+          const room = rooms.get(i.roomId)
+          return Boolean(room && !room.guest)
+        })
+        .map((i) => {
+          const from = db.prepare('SELECT tags FROM users WHERE account = ?').get(i.fromAccount) as
+            | { tags: string }
+            | undefined
+          return {
+            id: i.id,
+            from: i.fromAccount,
+            roomId: i.roomId,
+            mode: rooms.get(i.roomId)?.mode ?? 'chill',
+            tags: (from?.tags ?? '').split(',').filter(Boolean),
+          }
+        })
+      return send(res, 200, { ok: true, invites: list })
+    }
+
+    if (req.method === 'POST' && path === '/api/invite/respond') {
+      const body = await readJson(req)
+      const invite = invites.get(str(body.inviteId).toUpperCase())
+      const account = str(body.account)
+      const clientId = str(body.clientId)
+      if (!invite || invite.toAccount !== account) return send(res, 404, { error: '邀请已失效' })
+
+      if (body.accept !== true) {
+        invites.delete(invite.id)
+        return send(res, 200, { ok: true, accepted: false })
+      }
+
+      const room = rooms.get(invite.roomId)
+      if (!room) {
+        invites.delete(invite.id)
+        return send(res, 404, { error: '房间已结束' })
+      }
+      room.guest = { clientId, account }
+      room.startedAt = Date.now()
+      room.recorded = false
+      invites.delete(invite.id)
+      return send(res, 200, { ok: true, accepted: true, roomId: room.id })
+    }
+
+    if (req.method === 'POST' && path === '/api/room/create') {
+      const body = await readJson(req)
+      const account = str(body.account)
+      const clientId = str(body.clientId)
+      if (!account || !clientId) return send(res, 400, { error: '缺少 account 或 clientId' })
+      const room: Room = {
+        id: newRoomId(),
+        partner: '待加入',
+        mode: body.mode === 'stretch' ? 'stretch' : 'chill',
+        tags: [],
+        host: { clientId, account },
+        guest: null,
+        createdAt: Date.now(),
+        startedAt: null,
+        seq: 0,
+        messages: [],
+        recorded: false,
+      }
+      rooms.set(room.id, room)
+      return send(res, 201, { ok: true, roomId: room.id })
     }
 
     if (path === '/api/health') return send(res, 200, { ok: true })

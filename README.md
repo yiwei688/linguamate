@@ -12,16 +12,17 @@ Most speaking-practice tools give you a random stranger and an empty chat box. L
 
 - **Accounts** — sign up / sign in, passwords stored as `scrypt` hashes with a per-user salt (never plaintext).
 - **Two-track matching** — Comfort matches partners who share at least one tag; Stretch matches partners with no tag overlap or a higher level. Filtering runs on the server, not in the browser.
-- **Partner cards** — level, tags, shared-tag count or topic-difference count, one-click invite, and a reshuffle that walks through the whole candidate pool.
-- **Matching safety net** — after 15 seconds without a confirmed partner, a *Cancel* / *Switch to AI* choice appears, so nobody waits forever.
+- **Live partner list** — real accounts appear in the list for the mode they picked, pinned first with an online badge; invite one and they get a blocking accept/decline dialog.
+- **Rooms** — create a room with a mode, share the 6-character code, or join one; the timer only starts when both people are in.
+- **Two-person voice room** — WebRTC peer-to-peer audio with separate *microphone* and *headset* toggles, automatic `🎤 N seconds` bubbles from local loudness detection, an 8-second idle rescue hint, browser TTS for phrases, and a "partner left" notice.
 - **Daily topic** — a rotating conversation prompt with ready-to-use sentence starters in English plus a Chinese gloss.
-- **Practice records** — every session is written to the database (API ready; the dashboard that displays it is next).
+- **Personal dashboard** — level, tags, total minutes, session count, and the last 20 sessions grouped by year, with mode and partner tags.
+- **Practice records** — written server-side for both participants when a session ends; anything under one minute is not recorded.
 
 **In progress**
 
-- Personal dashboard: level, tags, total practice minutes, recent sessions.
-- Two-person voice room: WebRTC audio, transcript stream, AI co-pilot panel with idle detection and browser-native speech synthesis.
-- Growth radar and achievement wall.
+- Growth radar (topic distribution and language dimensions) with achievement badges.
+- Optional speech-to-text for the bubble placeholders.
 
 ## Tech stack
 

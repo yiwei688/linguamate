@@ -130,6 +130,183 @@
   color: var(--muted);
 }
 
+/* 顶部「房间」下拉 */
+.menu {
+  position: relative;
+}
+
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 132px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(16, 24, 40, 0.14);
+  display: none;
+  z-index: 30;
+}
+
+.menu:hover .menu-panel,
+.menu.open .menu-panel {
+  display: block;
+}
+
+.menu-panel button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.menu-panel button:hover {
+  background: var(--bg);
+}
+
+/* 在线真人 */
+.online-head {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.online-head b {
+  color: var(--ink);
+}
+
+.online-empty {
+  padding: 8px 0 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* 收到邀请的横条 */
+.invite-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  border-color: #ffd8cd;
+  background: #fff9f6;
+  font-size: 13.5px;
+}
+
+.invite-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.invite-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.invite-actions .btn {
+  width: auto;
+  margin: 0;
+}
+
+/* 收到的邀请：结构见 style.css 里的 .mask / .modal */
+.invite-modal h3 {
+  margin: 0 0 16px;
+  font-size: 17px;
+}
+
+.invite-row {
+  position: relative;
+  padding: 12px 0 48px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+
+.invite-row:first-child {
+  padding-top: 4px;
+  border-top: none;
+}
+
+.invite-name {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.invite-lead {
+  display: none;
+}
+
+.invite-row .tags {
+  justify-content: center;
+}
+
+.invite-row-actions {
+  position: absolute;
+  right: 0;
+  bottom: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.invite-row-actions .btn {
+  width: auto;
+  margin: 0;
+}
+
+/* 创建房间：先选模式 */
+.new-room-modal {
+  display: grid;
+  gap: 16px;
+  width: 380px;
+  text-align: center;
+}
+
+.new-room-modal h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.new-room-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.new-room-actions .btn {
+  width: auto;
+  margin: 0;
+}
+
+.new-room-cancel {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* 匹配成功：不跳页面，在列表上方等你点「进入房间」 */
+.bar.matched {
+  padding: 12px 14px;
+  border: 1px solid #ffd8cd;
+  border-radius: 12px;
+  background: #fff9f6;
+  margin-bottom: 12px;
+}
+
+.bar.matched .muted {
+  color: #a16207;
+}
+
 .ai-hint[hidden] {
   display: none;
 }

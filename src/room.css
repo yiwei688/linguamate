@@ -1,0 +1,376 @@
+/* 房间相关：等待页 / 加入页 / 房间（左 75% 对话 + 右 25% AI 副驾） */
+
+.room-shell {
+  max-width: 980px;
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+
+.room-shell .muted {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.room-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 2px;
+}
+
+/* 等待 / 加入 */
+.waiting {
+  padding: 34px 28px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.waiting h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.waiting .sub {
+  margin: 0;
+}
+
+.room-code {
+  margin: 8px 0;
+  padding: 10px 22px;
+  border: 1px dashed #ffd8cd;
+  border-radius: 12px;
+  background: #fff9f6;
+  color: var(--accent);
+  font-family: Consolas, monospace;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 8px;
+}
+
+.wait-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.wait-actions .btn {
+  width: auto;
+  margin: 0;
+}
+
+.waiting .field {
+  width: 100%;
+  max-width: 320px;
+  text-align: left;
+}
+
+.waiting .btn {
+  width: 100%;
+  max-width: 320px;
+}
+
+/* 房间 */
+.rbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.rwho {
+  display: grid;
+  gap: 2px;
+  min-width: 190px;
+}
+
+.rwho b {
+  font-size: 14px;
+}
+
+.prog {
+  flex: 1;
+  display: grid;
+  gap: 5px;
+}
+
+.prog .track {
+  height: 7px;
+  background: #eef0f3;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.prog .track i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), #ffb08f);
+  transition: width 1s linear;
+}
+
+.prog .lbl {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.rbar .btn {
+  width: auto;
+  margin: 0;
+}
+
+.rbody {
+  display: grid;
+  grid-template-columns: 75% 25%;
+  height: calc(100vh - 210px);
+  min-height: 460px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.rleft {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.stream {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  background: #fafbfc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stream-empty {
+  margin: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 聊天气泡 */
+.msg {
+  display: flex;
+  gap: 8px;
+  max-width: 78%;
+}
+
+.msg.self {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.m-ava {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bub {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 13.5px;
+}
+
+.msg.self .bub {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.bub .tr {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* 副驾里的句型 */
+.phrase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.phrase:hover {
+  border-color: var(--accent);
+}
+
+.phrase .en {
+  flex: 1;
+  font-size: 12.5px;
+}
+
+.phrase .say {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* 冷场提示 */
+.rescue {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  background: #fffbea;
+}
+
+.rescue[hidden] {
+  display: none;
+}
+
+.rescue b {
+  color: #a16207;
+  font-size: 12.5px;
+}
+
+.rescue p {
+  margin: 0;
+  font-size: 12.5px;
+  color: #78350f;
+}
+
+.rescue .link {
+  color: #a16207;
+  font-size: 12px;
+  text-align: left;
+}
+
+.inputrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+#r-link {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.inputrow .btn {
+  width: auto;
+  margin: 0;
+}
+
+#r-self {
+  display: none;
+}
+
+#r-remote {
+  display: none;
+}
+
+/* 对方离开 / 房间结束 */
+.left-modal {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: 320px;
+  text-align: center;
+}
+
+.left-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.left-modal .btn {
+  width: auto;
+  margin: 0;
+  padding: 9px 26px;
+}
+
+.rright {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fcfcfd;
+}
+
+.rright-head {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.copilot {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cblock h4 {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cblock p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.words span {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+@media (max-width: 860px) {
+  .rbody {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .rleft {
+    min-height: 320px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
