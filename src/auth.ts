@@ -20,6 +20,15 @@ function setUser(user: SessionUser): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(user))
 }
 
+/** 定级完成后刷新本地会话里的等级/标签，避免页面还显示旧的 */
+export function updateSession(patch: Partial<SessionUser>): SessionUser | null {
+  const current = currentUser()
+  if (!current) return null
+  const next = { ...current, ...patch }
+  setUser(next)
+  return next
+}
+
 export function logout(): void {
   localStorage.removeItem(SESSION_KEY)
 }

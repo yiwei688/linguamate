@@ -25,7 +25,7 @@ async function request<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
   }
 }
 
-export type SessionUser = { account: string; level: string; tags: string[] }
+export type SessionUser = { account: string; level: string; tags: string[]; assessed: number }
 
 export type Partner = {
   name: string
@@ -71,6 +71,22 @@ export const api = {
 
   login: (input: { account: string; password: string }) =>
     request<{ ok: true; user: SessionUser }>('/login', input),
+
+  level: (input: {
+    account: string
+    seconds: number
+    pauses: number
+    interests: string[]
+    social: string
+    rhythm: string
+    selfDesc: string
+  }) =>
+    request<{
+      ok: true
+      level: string
+      tags: string[]
+      scores: { flow: number; vocab: number; grammar: number; initiative: number }
+    }>('/level', input),
 
   partners: (account: string, mode: string, tags: string[], level: string, offset = 0) =>
     request<{ ok: true; partners: Partner[]; total: number; realCount: number }>(

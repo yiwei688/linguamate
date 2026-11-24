@@ -2,11 +2,11 @@
 // 打包命令见 package.json 的 build:static，入口在 api.ts。
 import type { ApiResult, Partner, Profile, PracticeItem } from './api'
 
-type MockUser = { account: string; password: string; level: string; tags: string[] }
+type MockUser = { account: string; password: string; level: string; tags: string[]; assessed: number }
 
 const users: MockUser[] = [
-  { account: 'demo', password: '123456', level: 'B1', tags: ['电影迷', '慢热型'] },
-  { account: 'test', password: '123456', level: 'B2', tags: ['科技控', '破冰者'] },
+  { account: 'demo', password: '123456', level: 'B1', tags: ['电影迷', '慢热型'], assessed: 1 },
+  { account: 'test', password: '123456', level: 'B2', tags: ['科技控', '破冰者'], assessed: 1 },
 ]
 
 type FakePartner = { name: string; level: string; color: string; tags: string[] }
@@ -126,16 +126,58 @@ export async function mockRequest<T>(path: string, body?: unknown): Promise<ApiR
     const password = String(payload.password ?? '')
     const user = users.find((u) => u.account === account)
     if (!user || user.password !== password) return { ok: false, error: '账号或密码错误（演示账号 demo / 123456）' }
-    return { ok: true, data: { ok: true, user: { account: user.account, level: user.level, tags: user.tags } } as unknown as T }
+    return {
+      ok: true,
+      data: {
+        ok: true,
+        user: { account: user.account, level: user.level, tags: user.tags, assessed: user.assessed },
+      } as unknown as T,
+    }
+  }
+
+  if (route === '/level') {
+    const account = String(payload.account ?? '')
+    const user = users.find((u) => u.account === account)
+    if (!user) return { ok: false, error: '账号不存在' }
+    const seconds = Math.max(0, Math.min(120, Number(payload.seconds) || 0))
+    const pauses = Math.max(0, Math.min(60, Number(payload.pauses) || 0))
+    const score = Math.round(Math.max(20, Math.min(95, 30 + (seconds / 60) * 50 - pauses * 3)))
+    const level = score >= 78 ? 'B2' : score >= 58 ? 'B1' : 'A2'
+    const interests = Array.isArray(payload.interests)
+      ? payload.interests.filter((t): t is string => typeof t === 'string' && t.length > 0)
+      : []
+    const tags = [...interests, payload.social, payload.rhythm].filter(
+      (t): t is string => typeof t === 'string' && t.length > 0,
+    )
+    user.level = level
+    user.tags = tags
+    user.assessed = 1
+    return {
+      ok: true,
+      data: {
+        ok: true,
+        level,
+        tags,
+        scores: {
+          flow: score,
+          vocab: Math.max(20, score - 5),
+          grammar: Math.max(20, score - 9),
+          initiative: Math.max(20, score - 2),
+        },
+      } as unknown as T,
+    }
   }
 
   if (route === '/register') {
     const account = String(payload.account ?? '')
     if (users.some((u) => u.account === account)) return { ok: false, error: '该账号已被注册（演示模式只存在浏览器里）' }
-    const user: MockUser = { account, password: String(payload.password ?? ''), level: 'B1', tags: ['电影迷', '慢热型'] }
+    const user: MockUser = { account, password: String(payload.password ?? ''), level: 'B1', tags: [], assessed: 0 }
     users.push(user)
     practicesByUser.set(account, [])
-    return { ok: true, data: { ok: true, user: { account, level: user.level, tags: user.tags } } as unknown as T }
+    return {
+      ok: true,
+      data: { ok: true, user: { account, level: user.level, tags: user.tags, assessed: 0 } } as unknown as T,
+    }
   }
 
   if (route === '/partners') {

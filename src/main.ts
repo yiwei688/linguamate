@@ -2,6 +2,7 @@ import './style.css'
 import { currentUser, login, register } from './auth'
 import { lobbyView, mountLobby } from './lobby'
 import { profileView, mountProfile } from './profile'
+import { levelView, mountLevel } from './level'
 import { joinView, mountJoin, roomView, mountRoom, waitView, mountWait } from './room'
 import { runCleanups } from './lifecycle'
 
@@ -107,7 +108,7 @@ function mountLogin(): void {
     const res = await login(account, password)
     btn.disabled = false
     if (!res.ok) return showErr(err, res.msg)
-    location.hash = '#/app'
+    goAfterAuth()
   })
 
   $<HTMLButtonElement>('#l-forgot').addEventListener('click', () => {
@@ -145,7 +146,7 @@ function mountRegister(): void {
     const res = await register({ account, password, phone, email })
     btn.disabled = false
     if (!res.ok) return showErr(err, res.msg)
-    location.hash = '#/app'
+    goAfterAuth()
   })
 }
 
@@ -155,6 +156,12 @@ function render(html: string, mount: () => void): void {
   runCleanups()
   app.innerHTML = html
   mount()
+}
+
+/** 登录/注册成功后：没做过初始定级就先去定级 */
+function goAfterAuth(): void {
+  const user = currentUser()
+  location.hash = user && !user.assessed ? '#/level' : '#/app'
 }
 
 function route(): void {
@@ -167,13 +174,24 @@ function route(): void {
     return
   }
 
-  const needsLogin = page === 'app' || page === 'me' || page === 'wait' || page === 'join' || page === 'room'
+  const needsLogin =
+    page === 'app' || page === 'me' || page === 'level' || page === 'wait' || page === 'join' || page === 'room'
   if (needsLogin && !currentUser()) {
     location.hash = '#/login'
     return
   }
 
+  if (page === 'level') {
+    render(levelView(), mountLevel)
+    return
+  }
+
   if (page === 'app') {
+    const user = currentUser()
+    if (user && !user.assessed) {
+      location.hash = '#/level'
+      return
+    }
     render(lobbyView(), mountLobby)
     return
   }

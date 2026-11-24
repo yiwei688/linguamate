@@ -12,9 +12,7 @@ type Topic = {
   tips: { en: string; cn: string }[]
 }
 
-const me = currentUser()
-const MY_LEVEL = me?.level ?? 'B1'
-const MY_TAGS = me?.tags ?? []
+const MY_TAGS_FALLBACK: string[] = []
 
 const TOPICS: Topic[] = [
   {
@@ -77,7 +75,7 @@ export function lobbyView(): string {
       <div class="lobby-who">
         <span>${user?.account ?? '未登录'}</span>
         <span class="dot-sep">·</span>
-        <span>${MY_LEVEL}</span>
+        <span>${user?.level ?? 'B1'}</span>
         <div class="top-actions">
           <div class="menu" id="room-menu">
             <button class="pill-link" type="button" id="room-menu-btn">房间 ▾</button>
@@ -146,6 +144,12 @@ export function lobbyView(): string {
 }
 
 export function mountLobby(): void {
+  // 注意：这里必须在挂载时读，不能放在模块顶层——
+  // 登录/定级之后不刷新页面，模块顶层的值会是旧的（甚至 null）。
+  const me = currentUser()
+  const MY_TAGS: string[] = me?.tags ?? MY_TAGS_FALLBACK
+  const MY_LEVEL = me?.level ?? 'B1'
+
   const stage = $<HTMLElement>('#stage')
   const head = $<HTMLDivElement>('#stage-head')
   const modesEl = $<HTMLDivElement>('#modes')

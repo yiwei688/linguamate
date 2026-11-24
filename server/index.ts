@@ -233,9 +233,67 @@ const server = createServer(async (req, res) => {
       const { salt, hash } = hashPassword(password)
       db.prepare(
         'INSERT INTO users (account, pass_hash, pass_salt, phone, email, level, tags, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(account, hash, salt, phone, email, 'B1', '电影迷,慢热型', Date.now())
+      ).run(account, hash, salt, phone, email, 'B1', '', Date.now())
 
-      return send(res, 201, { ok: true, user: { account, level: 'B1', tags: ['电影迷', '慢热型'] } })
+      return send(res, 201, { ok: true, user: { account, level: 'B1', tags: [], assessed: 0 } })
+    }
+
+    if (req.method === 'POST' && path === '/api/level') {
+      const body = await readJson(req)
+      const account = str(body.account)
+      if (!account) return send(res, 400, { error: '缺少 account' })
+      if (!db.prepare('SELECT account FROM users WHERE account = ?').get(account)) {
+        return send(res, 404, { error: '账号不存在' })
+      }
+
+      const INTEREST = ['电影迷', '科技控', '旅行党', '社会派']
+      const SOCIAL = ['破冰者', '慢热型', '倾听者']
+      const RHYTHM = ['短平快', '深聊派']
+
+      // 兴趣可以多选，也允许自己写（最多 4 个，每个不超过 12 个字）
+      const rawInterests = Array.isArray(body.interests) ? body.interests : []
+      const interests = [
+        ...new Set(
+          rawInterests
+            .filter((t): t is string => typeof t === 'string')
+            .map((t) => t.trim())
+            .filter((t) => t.length > 0 && t.length <= 12),
+        ),
+      ].slice(0, 4)
+
+      const socialRaw = str(body.social)
+      const rhythmRaw = str(body.rhythm)
+      const social = SOCIAL.includes(socialRaw) || (socialRaw.length > 0 && socialRaw.length <= 12) ? socialRaw : ''
+      const rhythm = RHYTHM.includes(rhythmRaw) || (rhythmRaw.length > 0 && rhythmRaw.length <= 12) ? rhythmRaw : ''
+      const selfDesc = str(body.selfDesc).slice(0, 40)
+
+      const tags = [...interests, social, rhythm].filter(Boolean)
+      if (tags.length === 0) return send(res, 400, { error: '至少回答一道题' })
+
+      // 假评分：只看说了多久、中间停顿几次。以后接 ASR + 大模型时替换这一段，前端不用改。
+      const seconds = Math.max(0, Math.min(120, Number(body.seconds) || 0))
+      const pauses = Math.max(0, Math.min(60, Number(body.pauses) || 0))
+      const score = Math.round(Math.max(20, Math.min(95, 30 + (seconds / 60) * 50 - pauses * 3)))
+      const level = score >= 78 ? 'B2' : score >= 58 ? 'B1' : 'A2'
+
+      db.prepare('UPDATE users SET level = ?, tags = ?, assessed = 1, self_desc = ? WHERE account = ?').run(
+        level,
+        tags.join(','),
+        selfDesc,
+        account,
+      )
+
+      return send(res, 200, {
+        ok: true,
+        level,
+        tags,
+        scores: {
+          flow: score,
+          vocab: Math.max(20, score - 5),
+          grammar: Math.max(20, score - 9),
+          initiative: Math.max(20, score - 2),
+        },
+      })
     }
 
     if (req.method === 'POST' && path === '/api/login') {
@@ -244,7 +302,7 @@ const server = createServer(async (req, res) => {
       const password = str(body.password)
 
       const row = db.prepare('SELECT * FROM users WHERE account = ?').get(account) as
-        | { account: string; pass_hash: string; pass_salt: string; level: string; tags: string }
+        | { account: string; pass_hash: string; pass_salt: string; level: string; tags: string; assessed: number }
         | undefined
 
       if (!row || !verifyPassword(password, row.pass_salt, row.pass_hash)) {
@@ -252,7 +310,12 @@ const server = createServer(async (req, res) => {
       }
       return send(res, 200, {
         ok: true,
-        user: { account: row.account, level: row.level, tags: row.tags.split(',').filter(Boolean) },
+        user: {
+          account: row.account,
+          level: row.level,
+          tags: row.tags.split(',').filter(Boolean),
+          assessed: row.assessed,
+        },
       })
     }
 

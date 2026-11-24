@@ -47,6 +47,29 @@ const hasCol = (n: string): boolean => practiceCols.some((c) => c.name === n)
 if (!hasCol('mode')) db.exec('ALTER TABLE practices ADD COLUMN mode TEXT')
 if (!hasCol('partner_tags')) db.exec('ALTER TABLE practices ADD COLUMN partner_tags TEXT')
 
+// 用户表补两列：是否做完初始定级（0 = 还没做）、自我介绍
+const userCols = db.prepare('PRAGMA table_info(users)').all() as { name: string }[]
+if (!userCols.some((c) => c.name === 'assessed')) {
+  db.exec('ALTER TABLE users ADD COLUMN assessed INTEGER NOT NULL DEFAULT 0')
+}
+if (!userCols.some((c) => c.name === 'self_desc')) {
+  db.exec("ALTER TABLE users ADD COLUMN self_desc TEXT NOT NULL DEFAULT ''")
+}
+
+// 给示例语伴补一个"生活类"标签，让用户自定义的标签也能匹配到人（可重复执行）
+const EXTRA_TAGS = ['摄影', '健身', '宠物', '动漫', '咖啡', '露营']
+{
+  const rows = db.prepare('SELECT id, tags FROM partners').all() as { id: number; tags: string }[]
+  const update = db.prepare('UPDATE partners SET tags = ? WHERE id = ?')
+  rows.forEach((row, i) => {
+    const parts = row.tags.split(',').filter(Boolean)
+    if (parts.length >= 3) return
+    const extra = EXTRA_TAGS[i % EXTRA_TAGS.length]
+    if (parts.includes(extra)) return
+    update.run([...parts, extra].join(','), row.id)
+  })
+}
+
 /** 给缺 mode / partner_tags 的记录补上：按对方标签和 demo 的标签是否有交集判断闲聊/进阶 */
 export function backfillPracticeMeta(): void {
   const rows = db
@@ -99,7 +122,7 @@ export function seedIfEmpty(): void {
 
   const demo = hashPassword('123456')
   db.prepare(
-    'INSERT OR IGNORE INTO users (account, pass_hash, pass_salt, phone, email, level, tags, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT OR IGNORE INTO users (account, pass_hash, pass_salt, phone, email, level, tags, created_at, assessed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
   ).run('demo', demo.hash, demo.salt, '13800138000', 'demo@example.com', 'B1', '电影迷,慢热型', Date.now())
 
   const insertPractice = db.prepare(
