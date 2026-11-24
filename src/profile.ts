@@ -124,7 +124,11 @@ function growthBlock(topics: { tag: string; minutes: number }[]): string {
 
 function profileHtml(data: Profile): string {
   const user = data.user
-  const last = data.recent.length ? mmdd(data.recent[0].at) : '—'
+  // 兜底：接口少字段时页面降级，而不是整页停在"正在加载"
+  const recent = data.recent ?? []
+  const topics = data.topics ?? []
+  const badges = data.badges ?? []
+  const last = recent.length ? mmdd(recent[0].at) : '—'
 
   return `
     <section class="card pcard">
@@ -149,19 +153,19 @@ function profileHtml(data: Profile): string {
 
     <section class="card recent">
       <h2>最近练习</h2>
-      ${practiceList(data.recent)}
+      ${practiceList(recent)}
     </section>
 
     <section class="card growth">
       <h2>成长图谱</h2>
       <p class="sub">按聊过的话题统计（分钟）</p>
-      ${growthBlock(data.topics)}
+      ${growthBlock(topics)}
     </section>
 
     <section class="card badges-card">
       <h2>成就墙</h2>
       <div class="badge-grid">
-        ${data.badges
+        ${badges
           .map(
             (b) =>
               `<div class="badge ${b.unlocked ? '' : 'lock'}"><b>${b.title}</b><span>${
@@ -213,7 +217,14 @@ export function mountProfile(): void {
       body.innerHTML = `<div class="card"><div class="empty-box">${res.error}</div></div>`
       return
     }
-    body.innerHTML = profileHtml(res.data)
+    try {
+      body.innerHTML = profileHtml(res.data)
+    } catch (err) {
+      // 渲染出错也要给个交代，不能一直停在"正在加载"
+      console.error('[profile] 渲染失败', err)
+      body.innerHTML =
+        '<div class="card"><div class="empty-box">页面数据不完整，刷新试试；还不行就把这里的情况告诉开发者</div></div>'
+    }
   }
 
   void load()

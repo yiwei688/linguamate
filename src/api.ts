@@ -1,9 +1,14 @@
 // 前端唯一的"出网口"：所有和数据库打交道的请求都从这里走。
 // 地址写 /api，开发时由 Vite 转发到 8787 端口（见 vite.config.ts），所以不会遇到跨域。
 
+import { mockRequest } from './mock'
+
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
 async function request<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  // 静态演示模式（GitHub Pages）：不发请求，直接用浏览器里的假数据
+  if (__STATIC_DEMO__) return mockRequest<T>(path, body)
+
   try {
     const res = await fetch('/api' + path, {
       method: body === undefined ? 'GET' : 'POST',

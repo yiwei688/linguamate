@@ -445,8 +445,11 @@ export function mountLobby(): void {
         clientId: clientId(),
         mode: btn.dataset.newMode,
       })
-      if (!res.ok) return
       newRoomMask.hidden = true
+      if (!res.ok) {
+        results.innerHTML = `<div class="empty-box">${res.error}</div>`
+        return
+      }
       location.hash = '#/room/' + res.data.roomId
     }
   })
