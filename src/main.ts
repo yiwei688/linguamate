@@ -203,3 +203,12 @@ function route(): void {
 
 window.addEventListener('hashchange', route)
 route()
+
+// 静态演示版（GitHub Pages）顶部加一条说明，避免被误认为完整产品
+if (__STATIC_DEMO__) {
+  const bar = document.createElement('div')
+  bar.className = 'demo-banner'
+  bar.textContent = '静态演示版 · 演示账号 demo / 123456 · 房间与语音需在本地运行完整版'
+  document.body.prepend(bar)
+  document.body.classList.add('has-demo-banner')
+}

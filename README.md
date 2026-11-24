@@ -2,6 +2,10 @@
 
 **Find a language partner who actually wants to talk about the same things — then practise speaking with a real voice call and an AI co-pilot at your side.**
 
+- **Live interface preview:** <https://yiwei688.github.io/linguamate/> — a static demonstration build (sample data, no backend; voice and rooms require the full service).
+- **Feature specification:** [FEATURES.md](./FEATURES.md) — full behaviour, deployment modes, data model and known limitations.
+- **Full service:** run two commands locally, see *Getting started*.
+
 Most speaking-practice tools give you a random stranger and an empty chat box. LinguaMate starts from what you already like: it reads your interest and social tags, proposes one topic a day, and matches you two ways — a *Comfort* track built on shared tags, and a *Stretch* track that deliberately pairs you with someone from a different topic space. When a human partner is not available in time, the AI takes over so the session never ends in an empty screen.
 
 > Interface copy is currently in Chinese; the codebase and this README are in English.

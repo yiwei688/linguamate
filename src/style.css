@@ -278,6 +278,25 @@ h1 {
   box-shadow: 0 24px 60px rgba(16, 24, 40, 0.28);
 }
 
+/* 静态演示版提示条 */
+.demo-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  padding: 6px 12px;
+  background: #16181d;
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+  letter-spacing: 0.2px;
+}
+
+body.has-demo-banner {
+  padding-top: 30px;
+}
+
 /* ---------------- 匹配大厅 ---------------- */
 
 .lobby {
