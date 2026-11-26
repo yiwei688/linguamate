@@ -3,6 +3,7 @@ import { api, type Partner } from './api'
 import { currentUser, logout } from './auth'
 import { clientId } from './client'
 import { onLeave } from './lifecycle'
+import { CHILL_TOPICS, cardOf, recommendTopics } from './topics'
 
 type Mode = 'chill' | 'stretch'
 
@@ -130,6 +131,14 @@ export function lobbyView(): string {
       </div>
     </div>
 
+    <div class="mask" id="prep-mask" hidden>
+      <div class="modal prep-modal">
+        <h3 id="prep-title">这次想聊什么？</h3>
+        <div id="prep-body"></div>
+        <div class="prep-actions" id="prep-actions"></div>
+      </div>
+    </div>
+
     <div class="mask" id="new-room-mask" hidden>
       <div class="modal new-room-modal">
         <h3>创建房间，想怎么聊？</h3>
@@ -149,6 +158,26 @@ export function mountLobby(): void {
   const me = currentUser()
   const MY_TAGS: string[] = me?.tags ?? MY_TAGS_FALLBACK
   const MY_LEVEL = me?.level ?? 'B1'
+
+  let roomTopic = ''
+
+  const speakText = (text: string): void => {
+    try {
+      speechSynthesis.cancel()
+      const u = new SpeechSynthesisUtterance(text)
+      u.lang = 'en-US'
+      u.rate = 0.9
+      window.setTimeout(() => {
+        try {
+          speechSynthesis.speak(u)
+        } catch {
+          // 忽略
+        }
+      }, 20)
+    } catch {
+      // 浏览器不支持就算了
+    }
+  }
 
   const stage = $<HTMLElement>('#stage')
   const head = $<HTMLDivElement>('#stage-head')
@@ -219,7 +248,9 @@ export function mountLobby(): void {
         ${list
           .map((p) => {
             const badge = p.online
-              ? '<span class="shared">在线</span>'
+              ? p.sameTopic
+                ? '<span class="shared same">同话题</span>'
+                : '<span class="shared">在线</span>'
               : mode === 'chill'
                 ? `<span class="shared">共同标签 ${p.shared.length}</span>`
                 : p.diff.length >= 2
@@ -256,6 +287,7 @@ export function mountLobby(): void {
           fromClientId: clientId(),
           toAccount: btn.dataset.inviteUser ?? '',
           mode: mode ?? 'chill',
+          topic: roomTopic,
         })
         if (!res.ok) {
           btn.disabled = false
@@ -274,7 +306,7 @@ export function mountLobby(): void {
   const loadPartners = async (nextOffset: number): Promise<void> => {
     const target = mode
     if (!target || !me) return
-    const res = await api.partners(me.account, target, MY_TAGS, MY_LEVEL, nextOffset)
+    const res = await api.partners(me.account, target, MY_TAGS, MY_LEVEL, nextOffset, roomTopic)
     if (!mode || mode !== target) return
     if (!res.ok) {
       results.innerHTML = `<div class="empty-box">${res.error}</div>`
@@ -288,11 +320,12 @@ export function mountLobby(): void {
 
   const publishMode = async (next: Mode | null): Promise<void> => {
     if (!me) return
-    await api.presence({ account: me.account, clientId: clientId(), mode: next })
+    await api.presence({ account: me.account, clientId: clientId(), mode: next, topic: roomTopic })
   }
 
-  const startSearch = async (next: Mode): Promise<void> => {
+  const startSearch = async (next: Mode, topic: string): Promise<void> => {
     mode = next
+    roomTopic = topic
     sec = 0
     stopTimer()
     stage.classList.add('is-searching')
@@ -400,6 +433,124 @@ export function mountLobby(): void {
     renderInvites(res.data.invites)
   }
 
+  /* ---------------- 匹配前的选题 + 预习（优先处理，先做完才能匹配） ---------------- */
+  const prepMask = $<HTMLDivElement>('#prep-mask')
+  const prepTitle = $<HTMLHeadingElement>('#prep-title')
+  const prepBodyEl = $<HTMLDivElement>('#prep-body')
+  const prepActions = $<HTMLDivElement>('#prep-actions')
+  let prepTimer: number | undefined
+  let prepIntent: 'match' | 'create' = 'match'
+  let prepMode: Mode = 'chill'
+  let prepTopic = ''
+
+  const closePrep = (): void => {
+    window.clearInterval(prepTimer)
+    prepMask.hidden = true
+    prepBodyEl.innerHTML = ''
+    prepActions.innerHTML = ''
+  }
+
+  const createRoom = async (next: Mode, topic: string): Promise<void> => {
+    if (!me) return
+    const res = await api.roomCreate({ account: me.account, clientId: clientId(), mode: next, topic })
+    if (!res.ok) {
+      results.innerHTML = `<div class="empty-box">${res.error}</div>`
+      return
+    }
+    location.hash = '#/room/' + res.data.roomId
+  }
+
+  const finishPrep = (): void => {
+    const topic = prepTopic
+    const modeNow = prepMode
+    const intent = prepIntent
+    closePrep()
+    if (intent === 'create') void createRoom(modeNow, topic)
+    else void startSearch(modeNow, topic)
+  }
+
+  const renderPrepCard = (): void => {
+    const card = cardOf(prepTopic)
+    if (!card) {
+      prepBodyEl.innerHTML = '<p class="muted">这个话题还没有预习内容</p>'
+      return
+    }
+    prepBodyEl.innerHTML = `
+      <div class="prep-scroll">
+        <div class="prep-line"><h5>背景</h5><p>${card.background}</p></div>
+        <div class="prep-line"><h5>6 个词</h5><div class="words">${card.words
+          .map((w) => `<button class="word" type="button" data-say="${w}">${w}</button>`)
+          .join('')}</div></div>
+        <div class="prep-line"><h5>3 个句型</h5>${card.phrases
+          .map(
+            (p) =>
+              `<div class="phrase" data-say="${p}"><span class="en">${p}</span><button class="say" type="button">🔊</button></div>`,
+          )
+          .join('')}</div>
+        <div class="prep-line"><h5>示范回答</h5><div class="phrase" data-say="${card.sample}"><span class="en">${card.sample}</span><button class="say" type="button">🔊</button></div></div>
+        <div class="prep-line"><h5>发音提醒</h5><ul class="prep-list">${card.tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>
+        <div class="prep-line"><h5>可以问对方</h5>${card.questions
+          .map(
+            (q) =>
+              `<div class="phrase" data-say="${q}"><span class="en">${q}</span><button class="say" type="button">🔊</button></div>`,
+          )
+          .join('')}</div>
+        <div class="prep-line"><h5>可能被追问</h5><ul class="prep-list">${card.followUps
+          .map((t) => `<li>${t}</li>`)
+          .join('')}</ul></div>
+      </div>`
+
+    prepBodyEl.querySelectorAll<HTMLElement>('[data-say]').forEach((el) => {
+      el.onclick = (e) => {
+        e.stopPropagation()
+        speakText(el.dataset.say ?? '')
+      }
+    })
+
+    let left = 20
+    const paintActions = (): void => {
+      prepActions.innerHTML = `
+        <button class="btn ghost sm" id="prep-skip" type="button">跳过预习</button>
+        <button class="btn sm" id="prep-go" type="button" ${left > 0 ? 'disabled' : ''}>${
+          left > 0 ? `开始（${left}s）` : '开始'
+        }</button>`
+      $<HTMLButtonElement>('#prep-skip').onclick = finishPrep
+      $<HTMLButtonElement>('#prep-go').onclick = finishPrep
+    }
+    paintActions()
+
+    window.clearInterval(prepTimer)
+    prepTimer = window.setInterval(() => {
+      left -= 1
+      if (left <= 0) {
+        left = 0
+        window.clearInterval(prepTimer)
+      }
+      paintActions()
+    }, 1000)
+  }
+
+  const openPrep = (next: Mode, intent: 'match' | 'create'): void => {
+    prepIntent = intent
+    prepMode = next
+    const topics = next === 'chill' ? CHILL_TOPICS : recommendTopics(MY_TAGS)
+    prepTitle.textContent = next === 'chill' ? '轻松闲聊：先选一个话题' : '挑战进阶：按你的标签推荐'
+    prepActions.innerHTML = ''
+    prepBodyEl.innerHTML = `
+      <p class="prep-note">选好话题后先看预习素材，20 秒后可开始（也可跳过）。</p>
+      <div class="topic-grid">
+        ${topics.map((t) => `<button class="topic-card" type="button" data-topic="${t}">${t}</button>`).join('')}
+      </div>`
+    prepBodyEl.querySelectorAll<HTMLButtonElement>('[data-topic]').forEach((btn) => {
+      btn.onclick = () => {
+        prepTopic = btn.dataset.topic ?? topics[0]
+        prepTitle.textContent = prepTopic
+        renderPrepCard()
+      }
+    })
+    prepMask.hidden = false
+  }
+
   /* ---------------- 顶部「房间」下拉：移开 2 秒后才收，移到面板上不收 ---------------- */
 
   const menuEl = $<HTMLDivElement>('#room-menu')
@@ -442,19 +593,9 @@ export function mountLobby(): void {
   })
 
   newRoomMask.querySelectorAll<HTMLButtonElement>('[data-new-mode]').forEach((btn) => {
-    btn.onclick = async () => {
-      if (!me) return
-      const res = await api.roomCreate({
-        account: me.account,
-        clientId: clientId(),
-        mode: btn.dataset.newMode,
-      })
+    btn.onclick = () => {
       newRoomMask.hidden = true
-      if (!res.ok) {
-        results.innerHTML = `<div class="empty-box">${res.error}</div>`
-        return
-      }
-      location.hash = '#/room/' + res.data.roomId
+      openPrep((btn.dataset.newMode as Mode) ?? 'chill', 'create')
     }
   })
 
@@ -476,7 +617,7 @@ export function mountLobby(): void {
   }
 
   modesEl.querySelectorAll<HTMLButtonElement>('.mode').forEach((btn) => {
-    btn.onclick = () => void startSearch((btn.dataset.mode as Mode) ?? 'chill')
+    btn.onclick = () => openPrep((btn.dataset.mode as Mode) ?? 'chill', 'match')
   })
 
   // 心跳：告诉服务器我现在在哪个模式（不点模式就 mode=null，不出现在别人列表里）

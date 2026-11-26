@@ -294,6 +294,109 @@
   color: var(--muted);
 }
 
+/* 匹配前：选题 + 预习卡 */
+.prep-modal {
+  width: 560px;
+  max-width: 100%;
+  display: grid;
+  gap: 14px;
+  max-height: 86vh;
+}
+
+.prep-modal h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.prep-note {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.topic-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.topic-card {
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topic-card:hover {
+  border-color: var(--accent);
+  background: #fff9f6;
+  color: #c2410c;
+}
+
+.prep-scroll {
+  max-height: 56vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 14px;
+  padding-right: 4px;
+}
+
+.prep-line h5 {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.prep-line p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #374151;
+}
+
+.prep-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.prep-list li {
+  position: relative;
+  padding-left: 13px;
+  font-size: 12.5px;
+  color: #374151;
+}
+
+.prep-list li::before {
+  content: '·';
+  position: absolute;
+  left: 3px;
+  color: var(--accent);
+}
+
+.prep-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.prep-actions .btn {
+  width: auto;
+  margin: 0;
+}
+
+/* 同话题徽章 */
+.shared.same {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
 /* 匹配成功：不跳页面，在列表上方等你点「进入房间」 */
 .bar.matched {
   padding: 12px 14px;

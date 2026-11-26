@@ -39,6 +39,15 @@ db.exec(`
     minutes       INTEGER NOT NULL,
     created_at    INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS transcripts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_account TEXT    NOT NULL,
+    room_id      TEXT    NOT NULL,
+    mode         TEXT,
+    text         TEXT    NOT NULL,
+    created_at   INTEGER NOT NULL
+  );
 `)
 
 // 轻量迁移：老库补两列（模式 / 对方标签），并把已有记录回填

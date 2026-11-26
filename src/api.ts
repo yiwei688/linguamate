@@ -35,6 +35,8 @@ export type Partner = {
   shared: string[]
   diff: string[]
   online?: boolean
+  topic?: string
+  sameTopic?: boolean
 }
 
 export type PracticeItem = {
@@ -57,6 +59,7 @@ export type RoomPublic = {
   id: string
   partner: string
   mode: string
+  topic: string
   tags: string[]
   host: { account: string }
   guest: { account: string } | null
@@ -74,8 +77,10 @@ export const api = {
 
   level: (input: {
     account: string
-    seconds: number
-    pauses: number
+    readingSeconds: number
+    readingAccuracy: number | null
+    readingWords: number
+    answers: { seconds: number; words: number; pauses: number }[]
     interests: string[]
     social: string
     rhythm: string
@@ -85,12 +90,18 @@ export const api = {
       ok: true
       level: string
       tags: string[]
-      scores: { flow: number; vocab: number; grammar: number; initiative: number }
+      scores: {
+        accuracy: number | null
+        fluency: number
+        rate: number
+        completion: number
+        overall: number
+      }
     }>('/level', input),
 
-  partners: (account: string, mode: string, tags: string[], level: string, offset = 0) =>
+  partners: (account: string, mode: string, tags: string[], level: string, offset = 0, topic = '') =>
     request<{ ok: true; partners: Partner[]; total: number; realCount: number }>(
-      `/partners?mode=${encodeURIComponent(mode)}&tags=${encodeURIComponent(tags.join(','))}&level=${encodeURIComponent(level)}&offset=${offset}&account=${encodeURIComponent(account)}`,
+      `/partners?mode=${encodeURIComponent(mode)}&tags=${encodeURIComponent(tags.join(','))}&level=${encodeURIComponent(level)}&offset=${offset}&account=${encodeURIComponent(account)}&topic=${encodeURIComponent(topic)}`,
     ),
 
   practices: (account: string) =>
@@ -128,11 +139,16 @@ export const api = {
 
   queueLeave: (input: { mode: string; clientId: string }) => request<{ ok: true }>('/queue/leave', input),
 
-  presence: (input: { account: string; clientId: string; mode: 'chill' | 'stretch' | null }) =>
+  presence: (input: { account: string; clientId: string; mode: 'chill' | 'stretch' | null; topic?: string }) =>
     request<{ ok: true; online: { account: string; level: string }[] }>('/presence', input),
 
-  inviteSend: (input: { fromAccount: string; fromClientId: string; toAccount: string; mode: string }) =>
-    request<{ ok: true; roomId: string; inviteId: string }>('/invite', input),
+  inviteSend: (input: {
+    fromAccount: string
+    fromClientId: string
+    toAccount: string
+    mode: string
+    topic?: string
+  }) => request<{ ok: true; roomId: string; inviteId: string }>('/invite', input),
 
   invites: (account: string) =>
     request<{ ok: true; invites: { id: string; from: string; roomId: string; mode: string; tags: string[] }[] }>(
@@ -142,8 +158,11 @@ export const api = {
   inviteRespond: (input: { inviteId: string; account: string; clientId: string; accept: boolean }) =>
     request<{ ok: true; accepted: boolean; roomId?: string }>('/invite/respond', input),
 
-  roomCreate: (input: { account: string; clientId: string; mode?: string }) =>
+  roomCreate: (input: { account: string; clientId: string; mode?: string; topic?: string }) =>
     request<{ ok: true; roomId: string }>('/room/create', input),
+
+  saveTranscript: (input: { account: string; roomId: string; mode: string; text: string }) =>
+    request<{ ok: true }>('/transcript', input),
 
   signalSend: (input: { roomId: string; from: string; kind: string; data: unknown }) =>
     request<{ ok: true; seq: number }>('/signal', input),

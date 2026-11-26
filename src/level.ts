@@ -4,39 +4,21 @@ import { currentUser, updateSession } from './auth'
 
 const $ = <T extends HTMLElement>(sel: string): T => document.querySelector<T>(sel)!
 
-const RECORD_MAX = 60
+const READING_MAX = 45
+const ANSWER_MAX = 20
+
+const PASSAGE = `My name is Alex and I live in a small city near the sea. On weekdays I study in the morning and work in a small cafe in the afternoon. In the evening I usually go running by the river, and then I read for half an hour before bed.`
+
+const QUESTIONS = [
+  'What do you usually do on a normal weekday?',
+  'What is one thing you would like to change about your daily routine?',
+]
 
 const INTEREST = ['电影迷', '科技控', '旅行党', '社会派']
 const SOCIAL = ['破冰者', '慢热型', '倾听者']
 const RHYTHM = ['短平快', '深聊派']
 
-type Prompt = { topic: string; parts: string[] }
-
-// 侧栏：不知道说什么时，给一个主题 + 每段说什么
-const PROMPTS: Prompt[] = [
-  {
-    topic: '最近一次旅行',
-    parts: ['去了哪里、和谁去的、待了几天', '印象最深的一个瞬间（看见了什么、发生了什么）', '下次还想不想去，为什么'],
-  },
-  {
-    topic: '你最喜欢的一部电影或剧',
-    parts: ['是什么、什么时候看的、和谁一起', '为什么喜欢：剧情、演员还是某个场景', '你会推荐给谁，为什么是他'],
-  },
-  {
-    topic: '一个让你开心的周末',
-    parts: ['那天你做了什么，从早到晚', '哪个细节最让你开心', '如果重来一次，你想改哪一件事'],
-  },
-  {
-    topic: '工作或学习里最烦的一件事',
-    parts: ['具体是什么麻烦，什么时候开始的', '它怎么影响你的一天', '你试过什么办法，打算怎么办'],
-  },
-  {
-    topic: '你最近在学的东西',
-    parts: ['学什么、学了多久、为什么学', '最难的地方在哪', '如果让你教别人，第一节课你会讲什么'],
-  },
-]
-
-type Phase = 'idle' | 'recording' | 'analyzing' | 'result'
+type Segment = { seconds: number; text: string; words: number; pauses: number }
 
 export function levelView(): string {
   const me = currentUser()
@@ -49,22 +31,18 @@ export function levelView(): string {
     <div class="level-grid">
       <section class="card level-card">
         <div class="level-head">
-          <h1>先花一分钟，让我们知道从哪儿开始</h1>
+          <h1>大概三分钟，给你一个起点</h1>
         </div>
         <div id="level-body"></div>
       </section>
 
       <aside class="card level-side">
-        <h3>不知道说什么？</h3>
-        <div id="prompt-box"></div>
-        <button class="btn ghost sm" type="button" id="prompt-next">换一个主题</button>
-        <p class="side-note">不用照念，顺着这三段说下去就行。</p>
+        <div id="side-body"></div>
       </aside>
     </div>
   </div>`
 }
 
-/** 弹一个小对话框让用户自己填 */
 function askText(title: string, placeholder: string, maxLength = 12): Promise<string | null> {
   return new Promise((resolve) => {
     const mask = document.createElement('div')
@@ -100,168 +78,325 @@ export function mountLevel(): void {
   }
 
   const body = $<HTMLDivElement>('#level-body')
-  const promptBox = $<HTMLDivElement>('#prompt-box')
+  const sideBody = $<HTMLDivElement>('#side-body')
   const grid = $<HTMLDivElement>('.level-grid')
   const side = $<HTMLElement>('.level-side')
 
-  /** 录音阶段显示侧栏（与主卡等高）；问卷阶段完全移出屏幕 */
-  const setSidebarVisible = (visible: boolean): void => {
+  let stream: MediaStream | null = null
+  let audioCtx: AudioContext | null = null
+  let stopCurrent: (() => void) | null = null
+  let leaving = false
+
+  let reading: Segment | null = null
+  const answers: Segment[] = []
+
+  const setSidebar = (visible: boolean): void => {
     side.hidden = !visible
     side.style.display = visible ? '' : 'none'
     grid.classList.toggle('full', !visible)
   }
 
-  let phase: Phase = 'idle'
-  let seconds = 0
-  let pauses = 0
-  let stream: MediaStream | null = null
-  let audioCtx: AudioContext | null = null
-  let analyser: AnalyserNode | null = null
-  let timer: number | undefined
-  let levelTimer: number | undefined
-  let speaking = false
-  let lastLoudAt = 0
-
-  let promptIndex = Math.floor(Math.random() * PROMPTS.length)
-
-  const drawPrompt = (): void => {
-    const p = PROMPTS[promptIndex]
-    promptBox.innerHTML = `
-      <div class="prompt-topic">${p.topic}</div>
-      <ol class="prompt-parts">
-        ${p.parts.map((part, i) => `<li><b>第 ${i + 1} 段</b>${part}</li>`).join('')}
-      </ol>`
-  }
-  drawPrompt()
-  $<HTMLButtonElement>('#prompt-next').onclick = () => {
-    if (PROMPTS.length < 2) return
-    let next = promptIndex
-    while (next === promptIndex) next = Math.floor(Math.random() * PROMPTS.length)
-    promptIndex = next
-    drawPrompt()
+  const sideReading = (): void => {
+    sideBody.innerHTML = `
+      <h3>朗读提示</h3>
+      <ul class="side-list">
+        <li>不用读快，<b>清楚</b>比快重要。</li>
+        <li>读错了继续往下读，不用回头改。</li>
+        <li>遇到不会的词，跳过去就好。</li>
+        <li>读完按「我读完了」。</li>
+      </ul>`
   }
 
-  const stopAudio = (): void => {
-    if (timer) window.clearInterval(timer)
-    timer = undefined
-    if (levelTimer) window.clearInterval(levelTimer)
-    levelTimer = undefined
-    analyser = null
-    void audioCtx?.close().catch(() => undefined)
-    audioCtx = null
-    stream?.getTracks().forEach((t) => t.stop())
-    stream = null
-    speaking = false
+  const sideAnswering = (index: number): void => {
+    sideBody.innerHTML = `
+      <h3>第 ${index + 1} 题怎么答</h3>
+      <ul class="side-list">
+        <li>先用一句话回答，再补一个<b>细节</b>或例子。</li>
+        <li>最多 ${ANSWER_MAX} 秒，够了就点「说完了」。</li>
+        <li>不会的词，用简单的词绕着说。</li>
+        <li>可以说 "um…" 停顿，但别一直沉默。</li>
+      </ul>`
   }
 
-  const renderIdle = (): void => {
-    phase = 'idle'
-    setSidebarVisible(true)
-    body.innerHTML = `
-      <div class="rec-stage">
-        <div class="rec-dot">🎙️</div>
-        <div class="rec-timer">00:00</div>
-      </div>
-      <button class="btn" id="rec-go" type="button">开始录音</button>
-      <p class="err" id="rec-err" hidden></p>`
-    $<HTMLButtonElement>('#rec-go').onclick = () => void startRecording()
-  }
-
-  const showRecError = (text: string): void => {
-    const err = document.querySelector<HTMLParagraphElement>('#rec-err')
-    if (!err) return
-    err.textContent = text
-    err.hidden = false
-  }
-
-  const startRecording = async (): Promise<void> => {
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        showRecError('这个浏览器不支持麦克风，换 Edge 或 Chrome')
-        return
-      }
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (err) {
-      const name = err instanceof DOMException ? err.name : ''
-      showRecError(
-        name === 'NotAllowedError' ? '你拒绝了麦克风权限：点地址栏左边的锁，把麦克风改成允许' : '打不开麦克风',
-      )
-      return
+  const cleanupRecording = (): void => {
+    if (audioCtx) {
+      void audioCtx.close().catch(() => undefined)
+      audioCtx = null
     }
+  }
 
-    phase = 'recording'
-    seconds = 0
-    pauses = 0
+  const ensureStream = async (): Promise<MediaStream> => {
+    if (stream) return stream
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    return stream
+  }
+
+  /** 录一段：返回时长、识别出的文字、词数、停顿次数 */
+  const recordSegment = async (maxSec: number, onTick: (sec: number) => void): Promise<Segment> => {
+    const mic = await ensureStream()
+    let sec = 0
+    let pauses = 0
+    let speaking = false
+    let lastLoud = 0
+    let done = false
+    let finalText = ''
+    let interimText = ''
+
+    return await new Promise<Segment>((resolve) => {
+      let timer = 0
+      let meterTimer: number | undefined
+
+      const finish = (): void => {
+        if (done) return
+        done = true
+        window.clearInterval(timer)
+        if (meterTimer) window.clearInterval(meterTimer)
+        cleanupRecording()
+        const text = (finalText || interimText).trim()
+        resolve({ seconds: sec, text, words: text.split(/\s+/).filter(Boolean).length, pauses })
+      }
+      stopCurrent = finish
+
+      const recognitionCtor = (
+        window as unknown as {
+          SpeechRecognition?: new () => SpeechRecognitionLike
+          webkitSpeechRecognition?: new () => SpeechRecognitionLike
+        }
+      ).SpeechRecognition ??
+        (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
+
+      if (recognitionCtor) {
+        try {
+          const rec = new recognitionCtor()
+          rec.lang = 'en-US'
+          rec.continuous = true
+          rec.interimResults = true
+          rec.onresult = (event: unknown) => {
+            const e = event as {
+              resultIndex: number
+              results: { length: number; [i: number]: { 0: { transcript: string }; isFinal: boolean } }
+            }
+            let interim = ''
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              const result = e.results[i]
+              if (result.isFinal) finalText = `${finalText} ${result[0].transcript}`.trim()
+              else interim += result[0].transcript
+            }
+            interimText = interim.trim()
+          }
+          rec.onerror = () => {
+            // 识别失败就只用时长和停顿打分
+          }
+          rec.onend = () => {
+            // 单段录制，不自动重启
+          }
+          rec.start()
+          activeRecognition = rec
+        } catch {
+          activeRecognition = null
+        }
+      }
+
+      try {
+        audioCtx = new AudioContext()
+        const source = audioCtx.createMediaStreamSource(mic)
+        const analyser = audioCtx.createAnalyser()
+        analyser.fftSize = 512
+        source.connect(analyser)
+        const buf = new Float32Array(analyser.fftSize)
+        meterTimer = window.setInterval(() => {
+          analyser.getFloatTimeDomainData(buf)
+          let sum = 0
+          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+          const loud = Math.sqrt(sum / buf.length) > 0.02
+          const now = Date.now()
+          if (loud) {
+            lastLoud = now
+            speaking = true
+          } else if (speaking && now - lastLoud > 1200) {
+            speaking = false
+            pauses++
+          }
+        }, 100)
+      } catch {
+        // 分析不了就只按时间打分
+      }
+
+      timer = window.setInterval(() => {
+        sec++
+        onTick(sec)
+        if (sec >= maxSec) finish()
+      }, 1000)
+
+      onTick(0)
+    }).finally(() => {
+      try {
+        activeRecognition?.stop()
+      } catch {
+        // 忽略
+      }
+      activeRecognition = null
+      stopCurrent = null
+    })
+  }
+
+  /* ---------------- 第 1 步：朗读 ---------------- */
+  const renderReading = (): void => {
+    setSidebar(true)
+    sideReading()
     body.innerHTML = `
-      <div class="rec-stage">
-        <div class="rec-dot recording">●</div>
+      <div class="passage">
+        <div class="passage-label">请朗读下面这段话（限时 ${READING_MAX} 秒）</div>
+        <p>${PASSAGE}</p>
+      </div>
+
+      <div class="rec-stage small">
         <div class="rec-timer" id="rec-timer">00:00</div>
       </div>
-      <button class="btn dark" id="rec-stop" type="button">说完了</button>
-      <p class="err" id="rec-err" hidden></p>`
 
-    $<HTMLButtonElement>('#rec-stop').onclick = () => void finishRecording()
+      <button class="btn" id="rec-go" type="button">开始朗读</button>
+      <button class="btn ghost" id="rec-stop" type="button" hidden>我读完了</button>
+      <p class="err" id="rec-err" hidden></p>
 
-    // 音量检测：只为数停顿次数，不录音、不上传
-    try {
-      audioCtx = new AudioContext()
-      const source = audioCtx.createMediaStreamSource(stream)
-      analyser = audioCtx.createAnalyser()
-      analyser.fftSize = 512
-      source.connect(analyser)
-      const buf = new Float32Array(analyser.fftSize)
-      levelTimer = window.setInterval(() => {
-        if (!analyser) return
-        analyser.getFloatTimeDomainData(buf)
-        let sum = 0
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
-        const loud = Math.sqrt(sum / buf.length) > 0.02
-        const now = Date.now()
-        if (loud) {
-          lastLoudAt = now
-          speaking = true
-        } else if (speaking && now - lastLoudAt > 700) {
-          speaking = false
-          pauses++
+      <div class="steps-hint">第 1 步 / 共 3 步</div>`
+
+    $<HTMLButtonElement>('#rec-go').onclick = async () => {
+      const err = $<HTMLParagraphElement>('#rec-err')
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          err.textContent = '这个浏览器不支持麦克风，换 Edge 或 Chrome'
+          err.hidden = false
+          return
         }
-      }, 100)
-    } catch {
-      // 分析不了就只按时间算分
-    }
+        await ensureStream()
+      } catch (e) {
+        const name = e instanceof DOMException ? e.name : ''
+        err.textContent =
+          name === 'NotAllowedError' ? '你拒绝了麦克风权限：点地址栏左边的锁，把麦克风改成允许' : '打不开麦克风'
+        err.hidden = false
+        return
+      }
 
-    timer = window.setInterval(() => {
-      seconds++
-      const el = document.querySelector<HTMLDivElement>('#rec-timer')
-      if (el) el.textContent = `00:${String(seconds).padStart(2, '0')}`
-      if (seconds >= RECORD_MAX) void finishRecording()
-    }, 1000)
+      $<HTMLButtonElement>('#rec-go').hidden = true
+      const stopBtn = $<HTMLButtonElement>('#rec-stop')
+      stopBtn.hidden = false
+      stopBtn.onclick = () => stopCurrent?.()
+
+      reading = await recordSegment(READING_MAX, (s) => {
+        const el = document.querySelector<HTMLDivElement>('#rec-timer')
+        if (el) el.textContent = fmt(s)
+      })
+      if (leaving) return
+      renderAnswer(0)
+    }
   }
 
-  const finishRecording = async (): Promise<void> => {
-    if (phase !== 'recording') return
-    stopAudio()
-    phase = 'analyzing'
+  /* ---------------- 第 2 步：两个口语小题 ---------------- */
+  const renderAnswer = (index: number): void => {
+    setSidebar(true)
+    sideAnswering(index)
+
+    body.innerHTML = `
+      <div class="passage">
+        <div class="passage-label">第 ${index + 1} 题（限时 ${ANSWER_MAX} 秒）</div>
+        <p class="question">${QUESTIONS[index]}</p>
+      </div>
+
+      <div class="rec-stage small">
+        <div class="rec-timer" id="rec-timer">00:00</div>
+      </div>
+
+      <button class="btn" id="ans-go" type="button">开始回答</button>
+      <button class="btn ghost" id="ans-stop" type="button" hidden>说完了</button>
+
+      <div class="steps-hint">第 ${index + 2} 步 / 共 3 步</div>`
+
+    $<HTMLButtonElement>('#ans-go').onclick = async () => {
+      $<HTMLButtonElement>('#ans-go').hidden = true
+      const stopBtn = $<HTMLButtonElement>('#ans-stop')
+      stopBtn.hidden = false
+      stopBtn.onclick = () => stopCurrent?.()
+
+      const seg = await recordSegment(ANSWER_MAX, (s) => {
+        const el = document.querySelector<HTMLDivElement>('#rec-timer')
+        if (el) el.textContent = fmt(s)
+      })
+      if (leaving) return
+      answers.push(seg)
+
+      if (index + 1 < QUESTIONS.length) renderAnswer(index + 1)
+      else void renderAnalyzing()
+    }
+  }
+
+  /* ---------------- 第 3 步：分析 + 结果 + 画像 ---------------- */
+  const renderAnalyzing = async (): Promise<void> => {
+    setSidebar(false)
     body.innerHTML = `
       <div class="analyzing">
         <div class="dots"><i></i><i></i><i></i></div>
-        <p class="sub">AI 正在分析你的语音……</p>
+        <p class="sub">正在分析你的朗读和回答……</p>
       </div>`
-    await new Promise((r) => setTimeout(r, 1200))
-    renderResult(seconds, pauses)
+    await new Promise((r) => setTimeout(r, 1400))
+    if (leaving) return
+    renderResult()
   }
 
-  const renderResult = (saidSeconds: number, pauseCount: number): void => {
-    phase = 'result'
-    setSidebarVisible(false)
-    const score = Math.round(Math.max(20, Math.min(95, 30 + (saidSeconds / 60) * 50 - pauseCount * 3)))
-    const level = score >= 78 ? 'B2' : score >= 58 ? 'B1' : 'A2'
+  const readingAccuracy = (spoken: string): number | null => {
+    const said = wordsOf(spoken)
+    if (said.length < 3) return null
+    const pool = new Map<string, number>()
+    for (const w of said) pool.set(w, (pool.get(w) ?? 0) + 1)
+    const target = wordsOf(PASSAGE)
+    let hit = 0
+    for (const w of target) {
+      const c = pool.get(w) ?? 0
+      if (c > 0) {
+        hit++
+        pool.set(w, c - 1)
+      }
+    }
+    return Math.round((hit / target.length) * 100)
+  }
+
+  const renderResult = (): void => {
+    setSidebar(false)
+
+    const readSeg = reading ?? { seconds: 0, text: '', words: 0, pauses: 0 }
+    const accuracy = readingAccuracy(readSeg.text)
+
+    const totalSec = answers.reduce((s, a) => s + a.seconds, 0)
+    const totalWords = answers.reduce((s, a) => s + a.words, 0)
+    const totalPauses = answers.reduce((s, a) => s + a.pauses, 0)
+    const minutes = totalSec / 60
+    const ppm = minutes > 0 ? totalPauses / minutes : 12
+    const wpm = minutes > 0 ? totalWords / minutes : 0
+
+    const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
+    const fluency = Math.round(clamp(100 - ppm * 8, 20, 95))
+    const rate = Math.round(clamp(wpm / 1.5, 20, 95))
+    const answered = answers.filter((a) => a.seconds >= 8).length
+    const completion = answers.length === 0 ? 30 : Math.round(30 + (answered / answers.length) * 70)
+
+    // 和服务端同一套权重：先显示预览等级，提交后以服务端为准
+    const overall =
+      accuracy === null
+        ? Math.round(fluency * 0.4 + rate * 0.3 + completion * 0.3)
+        : Math.round(accuracy * 0.35 + fluency * 0.25 + rate * 0.2 + completion * 0.2)
+    const previewLevel = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
 
     const pickedInterests: string[] = []
     const interestOptions = [...INTEREST]
+    const socialOptions = [...SOCIAL]
+    const rhythmOptions = [...RHYTHM]
     let social = ''
     let rhythm = ''
-    let socialOptions = [...SOCIAL]
-    let rhythmOptions = [...RHYTHM]
+
+    const bar = (label: string, value: number | null, suffix = ''): string => `
+      <div class="metric">
+        <div class="metric-row"><span>${label}</span><b>${value === null ? '—' : value + suffix}</b></div>
+        <div class="metric-bar"><i style="width:${value ?? 0}%"></i></div>
+      </div>`
 
     const quizHtml = (): string => `
       <div class="qblock">
@@ -313,14 +448,22 @@ export function mountLevel(): void {
         <div class="result-head">
           <div>
             <div class="sub">初步等级</div>
-            <div class="grade"><b>${level}</b></div>
+            <div class="grade"><b>${previewLevel}</b></div>
           </div>
           <div class="result-meta">
-            <div>说了 <b>${saidSeconds}</b> 秒</div>
-            <div>停顿 <b>${pauseCount}</b> 次</div>
-            <div class="muted">这是"看时长和停顿"给的粗分，接入语音识别后会换成真实评分</div>
+            <div>朗读 <b>${readSeg.seconds}</b> 秒 · 停顿 <b>${readSeg.pauses}</b> 次</div>
+            <div>回答 <b>${answered}</b> / ${answers.length} 题达标（≥8 秒）</div>
+            <div class="muted">评分来自：朗读准确度、停顿、语速、完成度</div>
           </div>
         </div>
+
+        <div class="metrics">
+          ${bar('朗读准确度', accuracy, '%')}
+          ${bar('流利度（停顿）', fluency)}
+          ${bar('语速', rate)}
+          ${bar('完成度', completion)}
+        </div>
+
         <div class="quiz" id="quiz">${quizHtml()}</div>
         <p class="err" id="level-err" hidden></p>
         <button class="btn" id="level-done" type="button">完成，进入大厅</button>`
@@ -374,8 +517,10 @@ export function mountLevel(): void {
         }
         const res = await api.level({
           account: me.account,
-          seconds: saidSeconds,
-          pauses: pauseCount,
+          readingSeconds: readSeg.seconds,
+          readingAccuracy: accuracy,
+          readingWords: readSeg.words,
+          answers: answers.map((a) => ({ seconds: a.seconds, words: a.words, pauses: a.pauses })),
           interests: pickedInterests,
           social,
           rhythm,
@@ -394,7 +539,47 @@ export function mountLevel(): void {
     paint()
   }
 
-  renderIdle()
+  renderReading()
 
-  window.addEventListener('hashchange', () => stopAudio(), { once: true })
+  window.addEventListener(
+    'hashchange',
+    () => {
+      leaving = true
+      stopCurrent?.()
+      try {
+        activeRecognition?.stop()
+      } catch {
+        // 忽略
+      }
+      cleanupRecording()
+      stream?.getTracks().forEach((t) => t.stop())
+      stream = null
+    },
+    { once: true },
+  )
 }
+
+/* ---------------- 小工具 ---------------- */
+
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  start: () => void
+  stop: () => void
+  onresult: ((event: unknown) => void) | null
+  onend: (() => void) | null
+  onerror: ((event: unknown) => void) | null
+}
+
+let activeRecognition: SpeechRecognitionLike | null = null
+
+const fmt = (sec: number): string =>
+  `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
+
+const wordsOf = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z'\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)

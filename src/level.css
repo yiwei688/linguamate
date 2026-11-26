@@ -175,6 +175,93 @@
   color: var(--muted);
 }
 
+/* 朗读短文 / 口语题 */
+.passage {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
+.passage-label {
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.passage p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.passage .question {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.rec-stage.small {
+  padding: 0;
+}
+
+.steps-hint {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* 评分条 */
+.metrics {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+
+.metric-bar {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #eef0f3;
+}
+
+.metric-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #12b3a6, #6ee7dc);
+}
+
+/* 侧栏提示列表 */
+.side-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.side-list li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 12.5px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.side-list li::before {
+  content: '·';
+  position: absolute;
+  left: 4px;
+  color: var(--accent);
+}
+
 /* 结果 + 问卷 */
 .result-head {
   display: flex;

@@ -139,32 +139,47 @@ export async function mockRequest<T>(path: string, body?: unknown): Promise<ApiR
     const account = String(payload.account ?? '')
     const user = users.find((u) => u.account === account)
     if (!user) return { ok: false, error: '账号不存在' }
-    const seconds = Math.max(0, Math.min(120, Number(payload.seconds) || 0))
-    const pauses = Math.max(0, Math.min(60, Number(payload.pauses) || 0))
-    const score = Math.round(Math.max(20, Math.min(95, 30 + (seconds / 60) * 50 - pauses * 3)))
-    const level = score >= 78 ? 'B2' : score >= 58 ? 'B1' : 'A2'
+
+    const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+    const accuracy =
+      typeof payload.readingAccuracy === 'number' ? Math.round(clamp(payload.readingAccuracy, 0, 100)) : null
+
+    const rawAnswers = Array.isArray(payload.answers) ? payload.answers : []
+    const list = rawAnswers.slice(0, 4).map((a) => {
+      const item = (a ?? {}) as Record<string, unknown>
+      return { seconds: num(item.seconds), words: num(item.words), pauses: num(item.pauses) }
+    })
+    const totalSec = list.reduce((s, a) => s + a.seconds, 0)
+    const totalWords = list.reduce((s, a) => s + a.words, 0)
+    const totalPauses = list.reduce((s, a) => s + a.pauses, 0)
+    const minutes = totalSec / 60
+    const ppm = minutes > 0 ? totalPauses / minutes : 12
+    const wpm = minutes > 0 ? totalWords / minutes : 0
+
+    const fluency = Math.round(clamp(100 - ppm * 8, 20, 95))
+    const rate = Math.round(clamp(wpm / 1.5, 20, 95))
+    const answered = list.filter((a) => a.seconds >= 8).length
+    const completion = list.length === 0 ? 30 : Math.round(30 + (answered / list.length) * 70)
+    const overall =
+      accuracy === null
+        ? Math.round(fluency * 0.4 + rate * 0.3 + completion * 0.3)
+        : Math.round(accuracy * 0.35 + fluency * 0.25 + rate * 0.2 + completion * 0.2)
+    const level = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
+
     const interests = Array.isArray(payload.interests)
       ? payload.interests.filter((t): t is string => typeof t === 'string' && t.length > 0)
       : []
     const tags = [...interests, payload.social, payload.rhythm].filter(
       (t): t is string => typeof t === 'string' && t.length > 0,
     )
+
     user.level = level
     user.tags = tags
     user.assessed = 1
     return {
       ok: true,
-      data: {
-        ok: true,
-        level,
-        tags,
-        scores: {
-          flow: score,
-          vocab: Math.max(20, score - 5),
-          grammar: Math.max(20, score - 9),
-          initiative: Math.max(20, score - 2),
-        },
-      } as unknown as T,
+      data: { ok: true, level, tags, scores: { accuracy, fluency, rate, completion, overall } } as unknown as T,
     }
   }
 

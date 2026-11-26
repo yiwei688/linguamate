@@ -56,17 +56,17 @@ function matchPartners(mode: string, myTags: string[], myLevel: string) {
 const PAGE_SIZE = 4
 
 /** 当前在某个模式里的真人（自己要能出现在别人的列表里，但不出现在自己的列表里） */
-function realPartners(mode: string, me: string, myTags: string[], myLevel: string) {
+function realPartners(mode: string, me: string, myTags: string[], myLevel: string, myTopic: string) {
   const now = Date.now()
-  const seen = new Map<string, { account: string; level: string }>()
+  const seen = new Map<string, { account: string; level: string; topic: string | null }>()
   for (const p of online.values()) {
     if (now - p.lastSeen > PRESENCE_TTL) continue
     if (p.mode !== mode) continue
     if (p.account === me) continue
-    seen.set(p.account, { account: p.account, level: p.level })
+    seen.set(p.account, { account: p.account, level: p.level, topic: p.topic })
   }
 
-  return [...seen.values()].map((u) => {
+  const list = [...seen.values()].map((u) => {
     const row = db.prepare('SELECT tags FROM users WHERE account = ?').get(u.account) as
       | { tags: string }
       | undefined
@@ -81,8 +81,13 @@ function realPartners(mode: string, me: string, myTags: string[], myLevel: strin
       shared,
       diff,
       online: true,
+      topic: u.topic ?? '',
+      sameTopic: Boolean(myTopic && u.topic === myTopic),
     }
   })
+
+  // 同话题的人排在前面
+  return list.sort((a, b) => Number(b.sameTopic) - Number(a.sameTopic))
 }
 
 /* ---------------- 房间与信令（只存在内存里，进程重启就清空） ---------------- */
@@ -95,6 +100,7 @@ type Room = {
   id: string
   partner: string
   mode: string
+  topic: string
   tags: string[]
   host: Member
   guest: Member | null
@@ -120,6 +126,7 @@ function publicRoom(room: Room) {
     id: room.id,
     partner: room.partner,
     mode: room.mode,
+    topic: room.topic,
     tags: room.tags,
     host: { account: room.host.account },
     guest: room.guest ? { account: room.guest.account } : null,
@@ -172,7 +179,7 @@ function freshWaiters(mode: string): Waiter[] {
 
 /* ---------------- 在线状态与邀请 ---------------- */
 
-type Presence = { account: string; level: string; mode: string | null; lastSeen: number }
+type Presence = { account: string; level: string; mode: string | null; topic: string | null; lastSeen: number }
 
 type Invite = {
   id: string
@@ -270,11 +277,39 @@ const server = createServer(async (req, res) => {
       const tags = [...interests, social, rhythm].filter(Boolean)
       if (tags.length === 0) return send(res, 400, { error: '至少回答一道题' })
 
-      // 假评分：只看说了多久、中间停顿几次。以后接 ASR + 大模型时替换这一段，前端不用改。
-      const seconds = Math.max(0, Math.min(120, Number(body.seconds) || 0))
-      const pauses = Math.max(0, Math.min(60, Number(body.pauses) || 0))
-      const score = Math.round(Math.max(20, Math.min(95, 30 + (seconds / 60) * 50 - pauses * 3)))
-      const level = score >= 78 ? 'B2' : score >= 58 ? 'B1' : 'A2'
+      /* 评分：朗读准确度 + 流利度（停顿）+ 语速 + 完成度
+         现在用的是浏览器识别出的文字和时长，属于"能量得出来的真实信号"；
+         以后接入大模型评分，只替换这一段。 */
+      const clamp01 = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
+      const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+      const readingAccuracyRaw = body.readingAccuracy
+      const accuracy =
+        typeof readingAccuracyRaw === 'number' ? Math.round(clamp01(readingAccuracyRaw, 0, 100)) : null
+
+      const rawAnswers = Array.isArray(body.answers) ? body.answers : []
+      const answerList = rawAnswers.slice(0, 4).map((a) => {
+        const item = (a ?? {}) as Record<string, unknown>
+        return { seconds: num(item.seconds), words: num(item.words), pauses: num(item.pauses) }
+      })
+
+      const totalSec = answerList.reduce((s, a) => s + a.seconds, 0)
+      const totalWords = answerList.reduce((s, a) => s + a.words, 0)
+      const totalPauses = answerList.reduce((s, a) => s + a.pauses, 0)
+      const minutes = totalSec / 60
+      const ppm = minutes > 0 ? totalPauses / minutes : 12
+      const wpm = minutes > 0 ? totalWords / minutes : 0
+
+      const fluency = Math.round(clamp01(100 - ppm * 8, 20, 95))
+      const rate = Math.round(clamp01(wpm / 1.5, 20, 95))
+      const answered = answerList.filter((a) => a.seconds >= 8).length
+      const completion = answerList.length === 0 ? 30 : Math.round(30 + (answered / answerList.length) * 70)
+
+      const overall =
+        accuracy === null
+          ? Math.round(fluency * 0.4 + rate * 0.3 + completion * 0.3)
+          : Math.round(accuracy * 0.35 + fluency * 0.25 + rate * 0.2 + completion * 0.2)
+      const level = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
 
       db.prepare('UPDATE users SET level = ?, tags = ?, assessed = 1, self_desc = ? WHERE account = ?').run(
         level,
@@ -287,12 +322,7 @@ const server = createServer(async (req, res) => {
         ok: true,
         level,
         tags,
-        scores: {
-          flow: score,
-          vocab: Math.max(20, score - 5),
-          grammar: Math.max(20, score - 9),
-          initiative: Math.max(20, score - 2),
-        },
+        scores: { accuracy, fluency, rate, completion, overall },
       })
     }
 
@@ -324,9 +354,10 @@ const server = createServer(async (req, res) => {
       const myTags = (url.searchParams.get('tags') ?? '').split(',').filter(Boolean)
       const myLevel = url.searchParams.get('level') ?? 'B1'
       const me = url.searchParams.get('account') ?? ''
+      const topic = url.searchParams.get('topic') ?? ''
       const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0)
 
-      const real = realPartners(mode, me, myTags, myLevel)
+      const real = realPartners(mode, me, myTags, myLevel, topic)
       const fake = matchPartners(mode, myTags, myLevel)
       const start = fake.length ? offset % fake.length : 0
       const fakePage = [...fake.slice(start), ...fake.slice(0, start)].slice(0, PAGE_SIZE)
@@ -469,6 +500,7 @@ const server = createServer(async (req, res) => {
         id: newRoomId(),
         partner: str(body.partner) || '语伴',
         mode: body.mode === 'stretch' ? 'stretch' : 'chill',
+        topic: str(body.topic),
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [],
         host: { clientId, account },
         guest: null,
@@ -564,6 +596,7 @@ const server = createServer(async (req, res) => {
           id: newRoomId(),
           partner: account,
           mode,
+          topic: str(body.topic),
           tags: [],
           host: { clientId: partner.clientId, account: partner.account },
           guest: { clientId, account },
@@ -601,7 +634,8 @@ const server = createServer(async (req, res) => {
       if (!account || !clientId) return send(res, 400, { error: '缺少 account 或 clientId' })
       const row = db.prepare('SELECT level FROM users WHERE account = ?').get(account) as { level: string } | undefined
       const mode = body.mode === 'chill' || body.mode === 'stretch' ? body.mode : null
-      online.set(clientId, { account, level: row?.level ?? 'B1', mode, lastSeen: Date.now() })
+      const topic = str(body.topic) || null
+      online.set(clientId, { account, level: row?.level ?? 'B1', mode, topic, lastSeen: Date.now() })
       return send(res, 200, { ok: true, online: onlineOthers(account) })
     }
 
@@ -617,6 +651,7 @@ const server = createServer(async (req, res) => {
         id: newRoomId(),
         partner: toAccount,
         mode,
+        topic: str(body.topic),
         tags: [],
         host: { clientId: fromClientId, account: fromAccount },
         guest: null,
@@ -696,6 +731,7 @@ const server = createServer(async (req, res) => {
         id: newRoomId(),
         partner: '待加入',
         mode: body.mode === 'stretch' ? 'stretch' : 'chill',
+        topic: str(body.topic),
         tags: [],
         host: { clientId, account },
         guest: null,
@@ -707,6 +743,19 @@ const server = createServer(async (req, res) => {
       }
       rooms.set(room.id, room)
       return send(res, 201, { ok: true, roomId: room.id })
+    }
+
+    if (req.method === 'POST' && path === '/api/transcript') {
+      const body = await readJson(req)
+      const account = str(body.account)
+      const roomId = str(body.roomId)
+      const text = str(body.text)
+      const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
+      if (!account || !roomId || !text) return send(res, 400, { error: '缺少参数' })
+      db.prepare(
+        'INSERT INTO transcripts (user_account, room_id, mode, text, created_at) VALUES (?, ?, ?, ?, ?)',
+      ).run(account, roomId, mode, text.slice(0, 20000), Date.now())
+      return send(res, 201, { ok: true })
     }
 
     if (path === '/api/health') return send(res, 200, { ok: true })

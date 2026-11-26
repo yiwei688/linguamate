@@ -128,8 +128,8 @@
 .rbody {
   display: grid;
   grid-template-columns: 75% 25%;
-  height: calc(100vh - 210px);
-  min-height: 460px;
+  height: clamp(340px, calc(100vh - 250px), 640px);
+  min-height: 340px;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -140,12 +140,14 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--line);
 }
 
 .stream {
-  flex: 1;
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 20px;
   background: #fafbfc;
   display: flex;
@@ -159,7 +161,147 @@
   font-size: 13px;
 }
 
-/* 聊天气泡 */
+/* 顶部横幅：3 分钟鼓励 / 10 分钟强化 / 卡顿提示 */
+.rbanner {
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.rbanner[hidden] {
+  display: none;
+}
+
+.rbanner.soft {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.rbanner.strong {
+  border-color: #fcd34d;
+  background: linear-gradient(90deg, #fff7e6, #ffe8d6, #fff7e6);
+  color: #b45309;
+  animation: reward-pop 0.8s ease;
+}
+
+.rbanner.hint {
+  border-color: #fde68a;
+  background: #fffbea;
+  color: #a16207;
+  cursor: pointer;
+}
+
+@keyframes reward-pop {
+  0% {
+    transform: scale(0.96);
+  }
+  40% {
+    transform: scale(1.02);
+    box-shadow: 0 8px 24px rgba(252, 211, 77, 0.45);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: none;
+  }
+}
+
+/* 系统提示行 */
+.sys-row {
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f1f3f6;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* 话题预习卡 */
+.prep-body {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.prep-body[hidden] {
+  display: none;
+}
+
+.prep-block h5 {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.word {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.word:hover {
+  border-color: var(--accent);
+  color: #c2410c;
+}
+
+.prep-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 识别中的草稿气泡 */
+.msg.draft .bub {
+  background: #fffbea;
+  border-style: dashed;
+  border-color: #fde68a;
+  color: #78350f;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+/* 气泡里的转写文字 */
+.bub-text {
+  display: block;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* 保存对话记录对话框 */
+.save-modal {
+  display: grid;
+  gap: 12px;
+  width: 360px;
+  max-width: 100%;
+  text-align: center;
+}
+
+.save-modal .sub {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.save-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.save-actions .btn {
+  width: auto;
+  margin: 0;
+}
+
+/* 聊天气球 */
 .msg {
   display: flex;
   gap: 8px;
@@ -263,6 +405,30 @@
   color: #a16207;
   font-size: 12px;
   text-align: left;
+}
+
+/* 救场思路 */
+.rescue-ideas {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.rescue-ideas li {
+  position: relative;
+  padding-left: 13px;
+  font-size: 12px;
+  color: #78350f;
+  line-height: 1.5;
+}
+
+.rescue-ideas li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  opacity: 0.55;
 }
 
 .inputrow {
