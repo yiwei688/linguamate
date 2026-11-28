@@ -20,6 +20,8 @@ const RHYTHM = ['短平快', '深聊派']
 
 type Segment = { seconds: number; text: string; words: number; pauses: number }
 
+type AiAssess = { level: string; grammar: number; vocabulary: number; coherence: number; comment: string }
+
 export function levelView(): string {
   const me = currentUser()
   return `<div class="level-shell">
@@ -330,6 +332,17 @@ export function mountLevel(): void {
   }
 
   /* ---------------- 第 3 步：分析 + 结果 + 画像 ---------------- */
+  const tryAssess = async (): Promise<AiAssess | null> => {
+    const answersText = answers.map((a) => a.text).filter(Boolean)
+    if (!reading && answersText.length === 0) return null
+    const res = await api.levelAssess({
+      readingText: reading?.text ?? '',
+      answers: answersText,
+      passage: PASSAGE,
+    })
+    return res.ok ? res.data : null
+  }
+
   const renderAnalyzing = async (): Promise<void> => {
     setSidebar(false)
     body.innerHTML = `
@@ -337,9 +350,11 @@ export function mountLevel(): void {
         <div class="dots"><i></i><i></i><i></i></div>
         <p class="sub">正在分析你的朗读和回答……</p>
       </div>`
-    await new Promise((r) => setTimeout(r, 1400))
+
+    // 模型评分和"假装在思考"同时跑，最少等 1.2 秒，避免一闪而过
+    const [assess] = await Promise.all([tryAssess(), new Promise((r) => setTimeout(r, 1200))])
     if (leaving) return
-    renderResult()
+    renderResult(assess)
   }
 
   const readingAccuracy = (spoken: string): number | null => {
@@ -359,7 +374,7 @@ export function mountLevel(): void {
     return Math.round((hit / target.length) * 100)
   }
 
-  const renderResult = (): void => {
+  const renderResult = (assess: AiAssess | null): void => {
     setSidebar(false)
 
     const readSeg = reading ?? { seconds: 0, text: '', words: 0, pauses: 0 }
@@ -383,7 +398,9 @@ export function mountLevel(): void {
       accuracy === null
         ? Math.round(fluency * 0.4 + rate * 0.3 + completion * 0.3)
         : Math.round(accuracy * 0.35 + fluency * 0.25 + rate * 0.2 + completion * 0.2)
-    const previewLevel = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
+    // 有模型评分就以模型等级为准，没有才用规则分
+    const ruleLevel = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
+    const previewLevel = assess?.level ?? ruleLevel
 
     const pickedInterests: string[] = []
     const interestOptions = [...INTEREST]
@@ -462,7 +479,16 @@ export function mountLevel(): void {
           ${bar('流利度（停顿）', fluency)}
           ${bar('语速', rate)}
           ${bar('完成度', completion)}
+          ${assess ? bar('语法（模型）', assess.grammar) : ''}
+          ${assess ? bar('词汇（模型）', assess.vocabulary) : ''}
+          ${assess ? bar('连贯（模型）', assess.coherence) : ''}
         </div>
+
+        <p class="ai-comment">${
+          assess?.comment
+            ? `📝 ${assess.comment.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c] ?? c)}`
+            : '这次没有拿到模型评分，上面是规则分（时长、停顿、语速、准确度）。'
+        }</p>
 
         <div class="quiz" id="quiz">${quizHtml()}</div>
         <p class="err" id="level-err" hidden></p>
@@ -525,6 +551,7 @@ export function mountLevel(): void {
           social,
           rhythm,
           selfDesc: selfInput?.value.trim() ?? '',
+          assess: assess ? { level: assess.level, comment: assess.comment } : undefined,
         })
         if (!res.ok) {
           err.textContent = res.error

@@ -135,6 +135,10 @@ export async function mockRequest<T>(path: string, body?: unknown): Promise<ApiR
     }
   }
 
+  if (route === '/level/assess') {
+    return { ok: false, error: '静态演示模式：模型评分需要本地服务器' }
+  }
+
   if (route === '/level') {
     const account = String(payload.account ?? '')
     const user = users.find((u) => u.account === account)

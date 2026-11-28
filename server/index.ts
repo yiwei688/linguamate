@@ -1,7 +1,7 @@
 // 最小的 HTTP 服务：只用 node:http，不装 Express。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { db, hashPassword, seedIfEmpty, verifyPassword } from './db.ts'
-import { aiEnabled, chat, greetingFor, personaFor, review, type ChatMessage } from './ai.ts'
+import { aiEnabled, assessLevel, chat, greetingFor, personaFor, review, type ChatMessage } from './ai.ts'
 
 const PORT = 8787
 
@@ -268,6 +268,28 @@ const server = createServer(async (req, res) => {
       return send(res, 201, { ok: true, user: { account, level: 'B1', tags: [], assessed: 0 } })
     }
 
+    if (req.method === 'POST' && path === '/api/level/assess') {
+      const body = await readJson(req)
+      const readingText = str(body.readingText)
+      const rawAnswers = Array.isArray(body.answers) ? body.answers : []
+      const answers = rawAnswers.filter((a): a is string => typeof a === 'string').slice(0, 4)
+      const passage = str(body.passage)
+
+      if (!readingText && answers.length === 0) {
+        return send(res, 400, { error: '没有识别到任何内容，先用规则分' })
+      }
+      if (!aiEnabled()) {
+        return send(res, 503, { error: '没有配置 DEEPSEEK_API_KEY，先用规则分' })
+      }
+
+      try {
+        const result = await assessLevel({ readingText, answers, passage })
+        return send(res, 200, { ok: true, ...result })
+      } catch (err) {
+        return send(res, 502, { error: err instanceof Error ? err.message : '模型评分失败' })
+      }
+    }
+
     if (req.method === 'POST' && path === '/api/level') {
       const body = await readJson(req)
       const account = str(body.account)
@@ -332,19 +354,24 @@ const server = createServer(async (req, res) => {
         accuracy === null
           ? Math.round(fluency * 0.4 + rate * 0.3 + completion * 0.3)
           : Math.round(accuracy * 0.35 + fluency * 0.25 + rate * 0.2 + completion * 0.2)
-      const level = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
+      const ruleLevel = overall >= 80 ? 'B2' : overall >= 55 ? 'B1' : 'A2'
 
-      db.prepare('UPDATE users SET level = ?, tags = ?, assessed = 1, self_desc = ? WHERE account = ?').run(
-        level,
-        tags.join(','),
-        selfDesc,
-        account,
-      )
+      // 前端如果拿到了模型评分，就以模型等级为准（A2/B1/B2 之外的一律忽略）
+      const assess = body.assess as { level?: unknown; comment?: unknown } | undefined
+      const modelLevelRaw = String(assess?.level ?? '').toUpperCase()
+      const modelLevel = modelLevelRaw === 'A2' || modelLevelRaw === 'B1' || modelLevelRaw === 'B2' ? modelLevelRaw : ''
+      const level = modelLevel || ruleLevel
+      const comment = typeof assess?.comment === 'string' ? assess.comment.slice(0, 80) : ''
+
+      db.prepare(
+        'UPDATE users SET level = ?, tags = ?, assessed = 1, self_desc = ?, level_comment = ? WHERE account = ?',
+      ).run(level, tags.join(','), selfDesc, comment, account)
 
       return send(res, 200, {
         ok: true,
         level,
         tags,
+        comment,
         scores: { accuracy, fluency, rate, completion, overall },
       })
     }

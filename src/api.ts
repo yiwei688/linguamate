@@ -75,6 +75,16 @@ export const api = {
   login: (input: { account: string; password: string }) =>
     request<{ ok: true; user: SessionUser }>('/login', input),
 
+  levelAssess: (input: { readingText: string; answers: string[]; passage: string }) =>
+    request<{
+      ok: true
+      level: string
+      grammar: number
+      vocabulary: number
+      coherence: number
+      comment: string
+    }>('/level/assess', input),
+
   level: (input: {
     account: string
     readingSeconds: number
@@ -85,11 +95,13 @@ export const api = {
     social: string
     rhythm: string
     selfDesc: string
+    assess?: { level: string; comment: string }
   }) =>
     request<{
       ok: true
       level: string
       tags: string[]
+      comment: string
       scores: {
         accuracy: number | null
         fluency: number

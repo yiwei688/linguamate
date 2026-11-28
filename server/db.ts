@@ -64,6 +64,9 @@ if (!userCols.some((c) => c.name === 'assessed')) {
 if (!userCols.some((c) => c.name === 'self_desc')) {
   db.exec("ALTER TABLE users ADD COLUMN self_desc TEXT NOT NULL DEFAULT ''")
 }
+if (!userCols.some((c) => c.name === 'level_comment')) {
+  db.exec("ALTER TABLE users ADD COLUMN level_comment TEXT NOT NULL DEFAULT ''")
+}
 
 // 给示例语伴补一个"生活类"标签，让用户自定义的标签也能匹配到人（可重复执行）
 const EXTRA_TAGS = ['摄影', '健身', '宠物', '动漫', '咖啡', '露营']

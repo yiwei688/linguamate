@@ -97,8 +97,81 @@ export async function chat(messages: ChatMessage[]): Promise<string> {
   return text
 }
 
-/** 一句话评语（练习结束后用）：有 key 走模型，没 key 用规则 */
-export async function review(transcript: string, topic: string): Promise<string> {
+export type LevelAssessment = {
+  level: 'A2' | 'B1' | 'B2'
+  grammar: number
+  vocabulary: number
+  coherence: number
+  comment: string
+}
+
+/**
+ * 用模型给"朗读 + 两个回答"的转写打分。
+ * 没有 key 或调用失败时抛错，调用方退回规则分。
+ */
+export async function assessLevel(input: {
+  readingText: string
+  answers: string[]
+  passage: string
+}): Promise<LevelAssessment> {
+  if (!aiEnabled()) throw new Error('没有配置 DEEPSEEK_API_KEY')
+
+  const system = `You are a certified English speaking examiner.
+Judge ONLY from the transcript of the learner's recognised speech (it may contain recognition errors; ignore obvious mis-recognitions).
+Return STRICT JSON with exactly these keys:
+{"level":"A2|B1|B2","grammar":0-100,"vocabulary":0-100,"coherence":0-100,"comment":"一句中文点评，不超过40字"}
+Rules: level must be one of A2, B1, B2. Scores are integers. The comment must be in Chinese and mention one strength and one improvement.`
+
+  const user = `Passage the learner read aloud:
+${input.passage}
+
+Learner reading (recognised):
+${input.readingText || '(nothing recognised)'}
+
+Answers:
+${input.answers.map((a, i) => `Q${i + 1}: ${a || '(nothing recognised)'}`).join('\n')}`
+
+  const res = await fetch(`${BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${API_KEY}` },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.2,
+      max_tokens: 300,
+      response_format: { type: 'json_object' },
+    }),
+  })
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`DeepSeek 返回 ${res.status}${detail ? `：${detail.slice(0, 120)}` : ''}`)
+  }
+
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+  const raw = data.choices?.[0]?.message?.content ?? ''
+  const parsed = JSON.parse(raw) as Record<string, unknown>
+
+  const clamp = (v: unknown): number => {
+    const n = typeof v === 'number' ? v : Number(v)
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 50
+  }
+  const levelRaw = String(parsed.level ?? '').toUpperCase()
+  const level: LevelAssessment['level'] = levelRaw === 'B2' || levelRaw === 'B1' ? levelRaw : 'A2'
+
+  return {
+    level,
+    grammar: clamp(parsed.grammar),
+    vocabulary: clamp(parsed.vocabulary),
+    coherence: clamp(parsed.coherence),
+    comment: String(parsed.comment ?? '').slice(0, 80),
+  }
+}
+
+/** 一句话评语（练习结束后用）：有 key 走模型，没 key 用规则 */export async function review(transcript: string, topic: string): Promise<string> {
   const lines = transcript.split('\n').filter(Boolean).length
   if (!aiEnabled()) {
     return `这次围绕「${topic}」聊了 ${lines} 段。建议下次：多说一个具体细节、少用一个笼统形容词。`
