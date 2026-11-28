@@ -50,7 +50,30 @@ Personal dashboard  →  history, topic radar, achievements
 | Session | The browser remembers which account is signed in; it holds no password |
 | Sign-out | Clears the browser session only |
 
-### 3.2 Partner discovery
+### 3.2 Initial level assessment
+
+| Item | Behaviour |
+| --- | --- |
+| Format | Read a short passage aloud (45 s limit), then answer two spoken questions (20 s each) |
+| Reading accuracy | Recognised words are compared with the passage; the overlap ratio becomes the accuracy score |
+| Fluency | Pauses (silence longer than 1.2 s) per minute of speaking |
+| Speech rate | Recognised words per minute during the two answers |
+| Completion | Whether each answer reached eight seconds |
+| Result | Weighted overall (accuracy 35 %, fluency 25 %, rate 20 %, completion 20 %); B2 at 80, B1 at 55, otherwise A2 |
+| Profile | Three single/multi-choice questions plus an optional free-text self-description set the learner's tags |
+| Fallback | When speech recognition is unavailable, accuracy is omitted and the remaining signals are re-weighted |
+
+### 3.3 Topic preparation before matching
+
+| Item | Behaviour |
+| --- | --- |
+| Topic choice | Comfort offers a fixed library of five topics; Stretch offers four suggestions derived from the learner's tags |
+| Preparation card | Background note, six key words (readable aloud), three sentence patterns, a model answer, pronunciation notes, two questions to ask, and two likely follow-ups |
+| Gate | A 20-second timer unlocks *Start*; a *Skip preparation* action is always available |
+| Same-topic preference | Learners who chose the same topic are listed first and marked *same topic*; others remain available |
+| Room | The chosen topic is carried into the room and shown in the co-pilot panel |
+
+### 3.4 Partner discovery
 
 | Item | Behaviour |
 | --- | --- |
@@ -61,7 +84,7 @@ Personal dashboard  →  history, topic radar, achievements
 | Presence | A learner appears in a track only after selecting it; presence expires after 12 seconds without a heartbeat |
 | Card content | Initial-based avatar, account name, CEFR-style level, tags, and a shared-tag or topic-difference indicator |
 
-### 3.3 Rooms and invitations
+### 3.5 Rooms and invitations
 
 | Item | Behaviour |
 | --- | --- |
@@ -72,7 +95,7 @@ Personal dashboard  →  history, topic radar, achievements
 | Timer | Starts only when both participants are present |
 | Departure | If one participant leaves, the other sees a centred notice and can leave with one action |
 
-### 3.4 Voice practice session
+### 3.6 Voice practice session
 
 | Item | Behaviour |
 | --- | --- |
@@ -80,12 +103,15 @@ Personal dashboard  →  history, topic radar, achievements
 | Signalling | Exchanged over HTTP polling every 0.8 s; no WebSocket dependency |
 | Microphone | Explicit toggle; permission errors are described in the interface |
 | Headset | Explicit toggle, muted by default — no audio is played until it is enabled |
-| Voice bubbles | Local loudness detection produces `🎤 N seconds` bubbles for both participants (speech-to-text is not yet integrated) |
-| Idle detection | After eight seconds without speech or bubbles, a rescue sentence appears; it is read aloud only when clicked |
-| Speech synthesis | Built-in browser TTS for the suggested phrases |
+| Voice bubbles | Local loudness detection produces bubbles for both participants; the browser's speech recognition adds the transcript, with a live draft while speaking |
+| Idle detection | After eight seconds without speech or bubbles, a rescue sentence appears together with three "what to say next" prompts drawn from the current topic; nothing is read aloud until clicked |
+| Timing targets | Target length follows the learner's level (A2 2 min, B1 5 min, B2 10 min); half of it counts as the minimum, and both thresholds produce a banner |
+| Topic switching | A manual action, or three stalls within 60 seconds, offers a topic switch which is mirrored to the other participant |
+| Speech synthesis | Built-in browser TTS, preferring a local voice for lower latency |
+| Transcript saving | On leaving, the learner may save the session transcript; it is stored per participant |
 | Session record | Written by the server for **both** participants when a session ends |
 
-### 3.5 Session records
+### 3.7 Session records
 
 | Rule | Behaviour |
 | --- | --- |
@@ -94,11 +120,11 @@ Personal dashboard  →  history, topic radar, achievements
 | Fields | Participant, partner account, duration, track, partner tags, timestamp |
 | Consistency | Both participants receive a record from a single server-side operation, so one side cannot be missing |
 
-### 3.6 Personal dashboard
+### 3.8 Personal dashboard
 
 Level and tags; total practice minutes; session count; date of the most recent session; the last twenty sessions grouped by year, each showing date, partner, track and partner tags.
 
-### 3.7 Growth profile and achievements
+### 3.9 Growth profile and achievements
 
 | Item | Behaviour |
 | --- | --- |
@@ -115,6 +141,8 @@ Level and tags; total practice minutes; session count; date of the most recent s
 | Interface and navigation | ✓ | ✓ |
 | Sign-in | ✓ database-backed | ✓ fixed demo accounts (`demo` / `123456`) |
 | Registration | ✓ persisted | ✗ resets on page reload |
+| Level assessment | ✓ persisted, microphone required | ✓ scored locally against sample data |
+| Topic picking and preparation cards | ✓ | ✓ |
 | Partner list and paging | ✓ | ✓ sample partners only |
 | Invitations between real accounts | ✓ | ✗ |
 | Rooms and voice calls | ✓ | ✗ requires the API service |
@@ -166,7 +194,8 @@ Transient state (rooms, invitations, presence, signalling messages) is held in m
 
 | Limitation | Consequence |
 | --- | --- |
-| No speech-to-text | Voice bubbles show duration only, not transcript |
+| Speech recognition runs in the browser | Chrome/Edge only, requires a network connection, and accuracy varies by microphone |
+| No large-language-model scoring | Level and fluency estimates come from duration, pauses, rate and word overlap rather than grammar or lexical range |
 | No relay (TURN) server | Calls work on the same machine or local network; some corporate or mobile networks will not connect |
 | Rooms held in memory | A service restart ends all open rooms |
 | No authentication token | Account identifiers travel in request parameters; acceptable for a local demonstration, not for public deployment |
@@ -175,7 +204,7 @@ Transient state (rooms, invitations, presence, signalling messages) is held in m
 
 ## 9. Roadmap
 
-1. Speech-to-text for transcripts and language-dimension scoring.
-2. Level-assessment flow with an initial learning profile.
+1. Server-side speech recognition and large-language-model scoring to replace the current signal-based estimate.
+2. An AI fallback partner when no human partner is available, with a persona derived from the learner's social tag.
 3. Friend list, practice community feed, and structured peer feedback.
 4. Token-based authentication and a deployable server configuration.

@@ -15,18 +15,19 @@ Most speaking-practice tools give you a random stranger and an empty chat box. L
 **Available now**
 
 - **Accounts** — sign up / sign in, passwords stored as `scrypt` hashes with a per-user salt (never plaintext).
+- **Initial level assessment** — read a short passage aloud and answer two spoken questions; reading accuracy, pausing, speech rate and completion produce a level and a starting profile.
+- **Topic preparation** — before matching, pick the topic for this session and review a preparation card (background, key words, sentence patterns, a model answer, pronunciation notes, questions and follow-ups). Same-topic partners are listed first.
 - **Two-track matching** — Comfort matches partners who share at least one tag; Stretch matches partners with no tag overlap or a higher level. Filtering runs on the server, not in the browser.
 - **Live partner list** — real accounts appear in the list for the mode they picked, pinned first with an online badge; invite one and they get a blocking accept/decline dialog.
-- **Rooms** — create a room with a mode, share the 6-character code, or join one; the timer only starts when both people are in.
-- **Two-person voice room** — WebRTC peer-to-peer audio with separate *microphone* and *headset* toggles, automatic `🎤 N seconds` bubbles from local loudness detection, an 8-second idle rescue hint, browser TTS for phrases, and a "partner left" notice.
-- **Daily topic** — a rotating conversation prompt with ready-to-use sentence starters in English plus a Chinese gloss.
-- **Personal dashboard** — level, tags, total minutes, session count, and the last 20 sessions grouped by year, with mode and partner tags.
-- **Practice records** — written server-side for both participants when a session ends; anything under one minute is not recorded.
+- **Rooms** — create a room with a mode and a topic, share the 6-character code, or join one; the timer only starts when both people are in.
+- **Two-person voice room** — WebRTC peer-to-peer audio with separate *microphone* and *headset* toggles, voice bubbles with browser speech-to-text, an 8-second idle rescue with talking points, level-based timing targets, topic switching, and browser TTS.
+- **Personal dashboard** — level, tags, total minutes, session count, the last 20 sessions grouped by year, a topic radar and achievement badges.
+- **Practice records** — written server-side for both participants when a session ends; anything under one minute is not recorded, and the transcript can be saved on exit.
 
 **In progress**
 
-- Growth radar (topic distribution and language dimensions) with achievement badges.
-- Optional speech-to-text for the bubble placeholders.
+- AI fallback partner, AI persona and model-based scoring.
+- Friend list, community feed and structured peer feedback.
 
 ## Tech stack
 
