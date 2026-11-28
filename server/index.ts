@@ -1,6 +1,7 @@
 // 最小的 HTTP 服务：只用 node:http，不装 Express。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { db, hashPassword, seedIfEmpty, verifyPassword } from './db.ts'
+import { aiEnabled, chat, greetingFor, personaFor, review, type ChatMessage } from './ai.ts'
 
 const PORT = 8787
 
@@ -161,6 +162,28 @@ function pruneRooms(): void {
   const now = Date.now()
   for (const [id, room] of rooms) {
     if (now - room.createdAt > limit) rooms.delete(id)
+  }
+}
+
+/* ---------------- AI 练习会话 ---------------- */
+
+type AiSession = {
+  id: string
+  account: string
+  topic: string
+  mode: string
+  personaName: string
+  messages: ChatMessage[]
+  createdAt: number
+}
+
+const aiSessions = new Map<string, AiSession>()
+
+function pruneAiSessions(): void {
+  const limit = 2 * 60 * 60 * 1000
+  const now = Date.now()
+  for (const [id, session] of aiSessions) {
+    if (now - session.createdAt > limit) aiSessions.delete(id)
   }
 }
 
@@ -756,6 +779,75 @@ const server = createServer(async (req, res) => {
         'INSERT INTO transcripts (user_account, room_id, mode, text, created_at) VALUES (?, ?, ?, ?, ?)',
       ).run(account, roomId, mode, text.slice(0, 20000), Date.now())
       return send(res, 201, { ok: true })
+    }
+
+    if (req.method === 'GET' && path === '/api/ai/status') {
+      return send(res, 200, { ok: true, enabled: aiEnabled() })
+    }
+
+    if (req.method === 'POST' && path === '/api/ai/session') {
+      const body = await readJson(req)
+      const account = str(body.account)
+      const topic = str(body.topic) || '最近一件让你开心的小事'
+      const mode = body.mode === 'stretch' ? 'stretch' : 'chill'
+      const social = str(body.social)
+      if (!account) return send(res, 400, { error: '缺少 account' })
+
+      const persona = personaFor(social)
+      const session: AiSession = {
+        id: newRoomId(),
+        account,
+        topic,
+        mode,
+        personaName: persona.name,
+        messages: [{ role: 'system', content: persona.system }],
+        createdAt: Date.now(),
+      }
+      aiSessions.set(session.id, session)
+      pruneAiSessions()
+
+      const greeting = greetingFor(topic, persona)
+      session.messages.push({ role: 'assistant', content: greeting })
+      return send(res, 201, {
+        ok: true,
+        sessionId: session.id,
+        greeting,
+        persona: persona.name,
+        aiEnabled: aiEnabled(),
+      })
+    }
+
+    if (req.method === 'POST' && path === '/api/ai/chat') {
+      const body = await readJson(req)
+      const session = aiSessions.get(str(body.sessionId))
+      const message = str(body.message)
+      if (!session) return send(res, 404, { error: '这个 AI 练习已经结束' })
+      if (!message) return send(res, 400, { error: '说点什么再发' })
+
+      session.messages.push({ role: 'user', content: message.slice(0, 800) })
+      // 只保留最近 12 轮，避免上下文过长
+      const history = [session.messages[0], ...session.messages.slice(-12)]
+
+      try {
+        const reply = await chat(history)
+        session.messages.push({ role: 'assistant', content: reply })
+        return send(res, 200, { ok: true, reply })
+      } catch (err) {
+        return send(res, 502, { error: err instanceof Error ? err.message : 'AI 暂时不可用' })
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/ai/review') {
+      const body = await readJson(req)
+      const session = aiSessions.get(str(body.sessionId))
+      const topic = session?.topic ?? str(body.topic)
+      const transcript = str(body.transcript) || session?.messages.map((m) => `${m.role}: ${m.content}`).join('\n') || ''
+      if (!topic) return send(res, 400, { error: '缺少话题' })
+      try {
+        return send(res, 200, { ok: true, comment: await review(transcript, topic) })
+      } catch (err) {
+        return send(res, 502, { error: err instanceof Error ? err.message : 'AI 暂时不可用' })
+      }
     }
 
     if (path === '/api/health') return send(res, 200, { ok: true })

@@ -3,6 +3,7 @@ import { currentUser, login, register } from './auth'
 import { lobbyView, mountLobby } from './lobby'
 import { profileView, mountProfile } from './profile'
 import { levelView, mountLevel } from './level'
+import { aiView, mountAi } from './ai'
 import { joinView, mountJoin, roomView, mountRoom, waitView, mountWait } from './room'
 import { runCleanups } from './lifecycle'
 
@@ -175,9 +176,20 @@ function route(): void {
   }
 
   const needsLogin =
-    page === 'app' || page === 'me' || page === 'level' || page === 'wait' || page === 'join' || page === 'room'
+    page === 'app' ||
+    page === 'me' ||
+    page === 'level' ||
+    page === 'ai' ||
+    page === 'wait' ||
+    page === 'join' ||
+    page === 'room'
   if (needsLogin && !currentUser()) {
     location.hash = '#/login'
+    return
+  }
+
+  if (page === 'ai') {
+    render(aiView(), mountAi)
     return
   }
 

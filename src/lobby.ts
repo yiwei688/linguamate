@@ -227,10 +227,9 @@ export function mountLobby(): void {
     $<HTMLButtonElement>('#cancel').onclick = cancelSearch
     $<HTMLButtonElement>('#ai').onclick = () => {
       stopTimer()
-      searchArea.innerHTML =
-        '<div class="bar"><span class="search-dot"></span><b>AI 练习还没做</b><span class="muted">等语音室那阶段接进来</span><button class="btn ghost sm" type="button" id="cancel">返回</button></div>'
-      $<HTMLButtonElement>('#cancel').onclick = cancelSearch
-      results.innerHTML = ''
+      void api.queueLeave({ mode: mode ?? 'chill', clientId: clientId() })
+      sessionStorage.setItem('lm.ai.start', JSON.stringify({ mode: mode ?? 'chill', topic: roomTopic }))
+      location.hash = '#/ai'
     }
   }
 

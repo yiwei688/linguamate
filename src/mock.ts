@@ -214,5 +214,9 @@ export async function mockRequest<T>(path: string, body?: unknown): Promise<ApiR
     return { ok: true, data: { ok: true, practices: list } as unknown as T }
   }
 
+  if (route.startsWith('/ai')) {
+    return { ok: false, error: '静态演示模式：AI 练习需要本地服务器（和 API key）' }
+  }
+
   return { ok: false, error: '静态演示模式：这个功能需要本地服务器（房间、语音、匹配队列）' }
 }

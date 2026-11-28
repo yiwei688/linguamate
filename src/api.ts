@@ -164,6 +164,20 @@ export const api = {
   saveTranscript: (input: { account: string; roomId: string; mode: string; text: string }) =>
     request<{ ok: true }>('/transcript', input),
 
+  aiStatus: () => request<{ ok: true; enabled: boolean }>('/ai/status'),
+
+  aiSession: (input: { account: string; topic: string; mode: string; social: string }) =>
+    request<{ ok: true; sessionId: string; greeting: string; persona: string; aiEnabled: boolean }>(
+      '/ai/session',
+      input,
+    ),
+
+  aiChat: (input: { sessionId: string; message: string }) =>
+    request<{ ok: true; reply: string }>('/ai/chat', input),
+
+  aiReview: (input: { sessionId?: string; topic: string; transcript: string }) =>
+    request<{ ok: true; comment: string }>('/ai/review', input),
+
   signalSend: (input: { roomId: string; from: string; kind: string; data: unknown }) =>
     request<{ ok: true; seq: number }>('/signal', input),
 
